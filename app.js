@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '1.2';
+const VERSION = '1.3';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -86,7 +86,7 @@ const S = {
   uid: null, nombre: ls.get('ties_nombre', ''), levs: [], lev: null, levId: ls.get('ties_lev', null),
   nivel: 1, inds: new Map(), pend: 0, vista: 'grilla', filtroN: 0, primera: true,
   detalle: null, fotos: [], notaSucia: false, camK: null, ingresando: false, instalar: null, panel: null,
-  cat: { clientes: [], plantas: [], calderas: [] }, ruta: ls.get('ties_ruta', null) || {}
+  cat: { clientes: [], plantas: [], calderas: [], sobrecalentadores: [], proyectos: [] }, ruta: ls.get('ties_ruta', null) || {}
 };
 $('#atras').innerHTML = ic('atras', 28);
 const altoCab = () => document.documentElement.style.setProperty('--hh', $('header').offsetHeight + 'px');
@@ -179,20 +179,29 @@ function detenerTodo() {
   cerrarModal();
 }
 
-// ---------- clientes, plantas, calderas y proyectos ----------
+// ---------- clientes, plantas, calderas, sobrecalentadores y proyectos ----------
 // El catálogo vive en levantamientos/_cat/… para usar las mismas reglas de seguridad.
-// Un proyecto (por año) es un documento de "levantamientos" con cid, pid, kid y anio.
+// Caldera → sobrecalentadores (paneles, tubos, niveles) y proyectos por año.
+// Cada (proyecto, sobrecalentador) es un documento de "levantamientos" con prj y sid.
 const catCol = c => collection(db, 'levantamientos', '_cat', c);
 const catRef = (c, id) => doc(db, 'levantamientos', '_cat', c, id);
+const CAT = ['clientes', 'plantas', 'calderas', 'sobrecalentadores', 'proyectos'];
 const CLIENTES_BASE = [{ id: 'arauco', nombre: 'Arauco' }, { id: 'cmpc', nombre: 'CMPC' }];
-const porNombre = (a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true });
-const cli = id => S.cat.clientes.find(x => x.id === id);
-const pla = id => S.cat.plantas.find(x => x.id === id);
-const cal = id => S.cat.calderas.find(x => x.id === id);
-const proyectosDe = kid => S.levs.filter(l => l.kid === kid).sort((a, b) => (b.anio || 0) - (a.anio || 0) || b.c - a.c);
+const porNombre = (a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es', { numeric: true });
+const busca = c => id => S.cat[c].find(x => x.id === id);
+const cli = busca('clientes'), pla = busca('plantas'), cal = busca('calderas'), sobre = busca('sobrecalentadores'), proy = busca('proyectos');
+const shDe = kid => S.cat.sobrecalentadores.filter(x => x.kid === kid).sort((a, b) => (a.c || 0) - (b.c || 0));
+const proyectosDe = kid => S.cat.proyectos.filter(x => x.kid === kid).sort((a, b) => (b.anio || 0) - (a.anio || 0) || b.c - a.c);
+const levsDeProy = id => S.levs.filter(l => l.prj === id);
+const antiguosDe = kid => S.levs.filter(l => l.kid === kid && !l.prj);
 // "Arauco · Valdivia · Caldera Recuperadora"
 const rutaTxt = l => [cli(l.cid)?.nombre, pla(l.pid)?.nombre, cal(l.kid)?.nombre].filter(Boolean).join(' · ');
-const nombreCompleto = l => [rutaTxt(l), l.nombre].filter(Boolean).join(' · ');
+const nombreCompleto = l => [rutaTxt(l), l.nombre, sobre(l.sid)?.nombre].filter(Boolean).join(' · ');
+const nombresNiv = (l = S.lev) => sobre(l?.sid)?.nn || l?.nn || [];
+const nivelNom = (i, l) => nombresNiv(l)[i - 1] || `Nivel ${i}`;
+const chipNom = i => nombresNiv()[i - 1] || `N${i}`;
+const dimTxt = x => `${x.p} paneles · ${x.t} tubos · ${x.n} niveles`;
+
 // guardar y mostrar de inmediato (sin esperar la respuesta de Firestore)
 function crearCat(c, datos) {
   const ref = doc(catCol(c)), x = { ...datos, c: Date.now(), u: S.nombre };
@@ -209,29 +218,29 @@ function inicio() {
     S.levs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (S.lev) {
       const l = S.levs.find(x => x.id === S.lev.id);
-      if (!l) { toast('El proyecto fue eliminado'); return cerrarLev(); }
+      if (!l) { if (snap.metadata.fromCache) return; toast('El levantamiento fue eliminado'); return cerrarLev(); }
       const cambio = l.p !== S.lev.p || l.n !== S.lev.n || l.t !== S.lev.t || l.nombre !== S.lev.nombre || l.kid !== S.lev.kid;
       S.lev = l; tituloLev(); if (cambio) render();
     } else if (S.levId && S.levs.some(x => x.id === S.levId)) abrirLev(S.levId);
     else pantalla();
   }, err);
-  S.unsubCat = ['clientes', 'plantas', 'calderas'].map(c => onSnapshot(catCol(c), snap => {
+  S.unsubCat = CAT.map(c => onSnapshot(catCol(c), snap => {
     S.cat[c] = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(porNombre);
     // CMPC y Arauco vienen de partida (IDs fijos: si dos personas lo hacen a la vez no se duplican)
     if (c === 'clientes' && !snap.metadata.fromCache && snap.empty)
       CLIENTES_BASE.forEach(x => setDoc(catRef('clientes', x.id), { nombre: x.nombre, c: Date.now(), u: S.nombre }).catch(errEsc));
-    if (S.lev) tituloLev(); else if (!S.levId) pantalla();
+    if (S.lev) { tituloLev(); if (c === 'sobrecalentadores') render(); } else if (!S.levId) pantalla();
   }, err));
 }
 
 function atras() {
   if (S.lev) return cerrarLev();
   const r = S.ruta;
-  if (r.kid) r.kid = null; else if (r.pid) r.pid = null; else r.cid = null;
+  if (r.prj) r.prj = null; else if (r.kid) r.kid = null; else if (r.pid) r.pid = null; else r.cid = null;
   ir(r);
 }
 function ir(r) {
-  S.ruta = { cid: r.cid || null, pid: r.pid || null, kid: r.kid || null };
+  S.ruta = { cid: r.cid || null, pid: r.pid || null, kid: r.kid || null, prj: r.prj || null };
   ls.set('ties_ruta', S.ruta); if (S.ruta.cid) guardia();
   window.scrollTo(0, 0); pantalla();
 }
@@ -240,20 +249,24 @@ function pantalla() {
   if (S.lev) return;
   const r = S.ruta;
   // si algo se borró, subir al nivel que todavía existe
-  if (r.kid && !cal(r.kid) && S.cat.calderas.length) r.kid = null;
-  if (r.pid && !pla(r.pid) && S.cat.plantas.length) { r.pid = null; r.kid = null; }
-  if (r.cid && !cli(r.cid) && S.cat.clientes.length) { r.cid = null; r.pid = null; r.kid = null; }
-  if (r.kid) vistaCaldera(); else if (r.pid) vistaPlanta(); else if (r.cid) vistaCliente(); else home();
+  if (r.prj && !proy(r.prj) && S.cat.proyectos.length) r.prj = null;
+  if (r.kid && !cal(r.kid) && S.cat.calderas.length) { r.kid = null; r.prj = null; }
+  if (r.pid && !pla(r.pid) && S.cat.plantas.length) { r.pid = null; r.kid = null; r.prj = null; }
+  if (r.cid && !cli(r.cid) && S.cat.clientes.length) S.ruta = {};
+  const q = S.ruta;
+  if (q.prj) vistaProyecto(); else if (q.kid) vistaCaldera(); else if (q.pid) vistaPlanta(); else if (q.cid) vistaCliente(); else home();
 }
 
 const cabSimple = (t, sub) => `<div class="cabniv"><div class="ctit"><b>${t}</b>${sub ? `<span>${sub}</span>` : ''}</div></div>`;
-const itemNav = (attr, icono, tit, sub) => `<button class="item nav" ${attr}><span class="inav">${ic(icono, 26)}</span>
-  <div><b>${tit}</b>${sub ? `<span>${sub}</span>` : ''}</div>${ic('derecha', 26)}</button>`;
+const itemNav = (attr, icono, tit, sub, sinFlecha) => `<button class="item nav" ${attr}><span class="inav">${ic(icono, 26)}</span>
+  <div><b>${tit}</b>${sub ? `<span>${sub}</span>` : ''}</div>${sinFlecha ? ic('editar', 22) : ic('derecha', 26)}</button>`;
 const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
+const acciones = (borrar = 'Eliminar') => `<div class="acciones"><button class="btn" id="bRen">${ic('editar')}Renombrar</button><button class="btn peligro" id="bDel">${ic('borrar')}${borrar}</button></div>`;
 
 function home() {
   S.lev = null; titulo('TIES');
   const sin = S.levs.filter(l => !l.kid || !cal(l.kid));
+  const rec = [...S.cat.proyectos].filter(p => cal(p.kid)).sort((a, b) => b.c - a.c).slice(0, 4);
   app.innerHTML = cabSimple(`Hola, ${esc(S.nombre)}`, 'Elige cliente, planta y caldera') +
     `<h3>Clientes</h3>` +
     (S.cat.clientes.map(c => {
@@ -261,15 +274,13 @@ function home() {
       return itemNav(`data-cid="${c.id}"`, 'cliente', esc(c.nombre), `${plural(pl, 'planta', 'plantas')} · ${plural(ca, 'caldera', 'calderas')}`);
     }).join('') || '<p class="vacio">Cargando clientes…</p>') +
     `<button class="btn" id="bCli">${ic('agregar')}Nuevo cliente</button>` +
-    (S.levs.some(l => l.kid && cal(l.kid)) ? `<h3>Proyectos recientes</h3>` + S.levs.filter(l => l.kid && cal(l.kid)).slice(0, 4)
-      .map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), esc(rutaTxt(l)))).join('') : '') +
-    (sin.length ? `<h3>Sin caldera asignada</h3><p class="nota">Asígnales una caldera en Ajustes, dentro del proyecto.</p>` +
-      sin.map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), `${l.p} paneles · ${l.n} niveles · ${l.t} tubos`)).join('') : '');
+    (rec.length ? `<h3>Proyectos recientes</h3>` + rec.map(p => itemNav(`data-prj="${p.id}"`, 'proyecto', esc(p.nombre), esc(rutaTxt(p)))).join('') : '') +
+    (sin.length ? `<h3>Sin caldera asignada</h3><p class="nota">Asígnales una caldera en Ajustes, dentro del levantamiento.</p>` +
+      sin.map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), dimTxt(l))).join('') : '');
   app.querySelectorAll('[data-cid]').forEach(b => b.onclick = () => ir({ cid: b.dataset.cid }));
+  app.querySelectorAll('[data-prj]').forEach(b => b.onclick = () => { const p = proy(b.dataset.prj); ir({ cid: p.cid, pid: p.pid, kid: p.kid, prj: p.id }); });
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
-  $('#bCli').onclick = () => formNombre('Nuevo cliente', '', 'Ej. Celulosa Arauco', nombre => {
-    ir({ cid: crearCat('clientes', { nombre }) });
-  });
+  $('#bCli').onclick = () => formNombre('Nuevo cliente', '', 'Ej. Celulosa Arauco', nombre => ir({ cid: crearCat('clientes', { nombre }) }));
 }
 
 function vistaCliente() {
@@ -280,12 +291,9 @@ function vistaCliente() {
     `<h3>Plantas</h3>` +
     (ps.map(p => itemNav(`data-pid="${p.id}"`, 'planta', esc(p.nombre), plural(S.cat.calderas.filter(k => k.pid === p.id).length, 'caldera', 'calderas'))).join('')
       || '<p class="vacio">Aún no hay plantas. Agrega la primera.</p>') +
-    `<button class="btn pri" id="bPla">${ic('agregar')}Nueva planta</button>
-    <div class="acciones"><button class="btn" id="bRen">${ic('editar')}Renombrar</button><button class="btn peligro" id="bDel">${ic('borrar')}Eliminar</button></div>`;
+    `<button class="btn pri" id="bPla">${ic('agregar')}Nueva planta</button>` + acciones();
   app.querySelectorAll('[data-pid]').forEach(b => b.onclick = () => ir({ cid: c.id, pid: b.dataset.pid }));
-  $('#bPla').onclick = () => formNombre('Nueva planta · ' + c.nombre, '', 'Ej. Valdivia', nombre => {
-    ir({ cid: c.id, pid: crearCat('plantas', { nombre, cid: c.id }) });
-  });
+  $('#bPla').onclick = () => formNombre('Nueva planta · ' + c.nombre, '', 'Ej. Valdivia', nombre => ir({ cid: c.id, pid: crearCat('plantas', { nombre, cid: c.id }) }));
   $('#bRen').onclick = () => formNombre('Renombrar cliente', c.nombre, '', nombre => updateDoc(catRef('clientes', c.id), { nombre }).catch(errEsc));
   $('#bDel').onclick = () => {
     if (ps.length) return toast('Primero elimina sus plantas');
@@ -301,12 +309,12 @@ function vistaPlanta() {
   app.innerHTML = cabSimple(esc(p.nombre), `${esc(c?.nombre || '')} · planta`) +
     `<h3>Calderas</h3>` +
     (ks.map(k => itemNav(`data-kid="${k.id}"`, 'caldera', esc(k.nombre),
-      `${k.p} paneles · ${k.n} niveles · ${k.t} tubos · ${plural(proyectosDe(k.id).length, 'proyecto', 'proyectos')}`)).join('')
+      `${plural(shDe(k.id).length, 'sobrecalentador', 'sobrecalentadores')} · ${plural(proyectosDe(k.id).length, 'proyecto', 'proyectos')}`)).join('')
       || '<p class="vacio">Aún no hay calderas. Agrega la primera.</p>') +
-    `<button class="btn pri" id="bCal">${ic('agregar')}Nueva caldera</button>
-    <div class="acciones"><button class="btn" id="bRen">${ic('editar')}Renombrar</button><button class="btn peligro" id="bDel">${ic('borrar')}Eliminar</button></div>`;
+    `<button class="btn pri" id="bCal">${ic('agregar')}Nueva caldera</button>` + acciones();
   app.querySelectorAll('[data-kid]').forEach(b => b.onclick = () => ir({ cid: p.cid, pid: p.id, kid: b.dataset.kid }));
-  $('#bCal').onclick = () => formCaldera(null, p);
+  $('#bCal').onclick = () => formNombre('Nueva caldera · ' + p.nombre, '', 'Ej. Caldera Recuperadora 1',
+    nombre => ir({ cid: p.cid, pid: p.id, kid: crearCat('calderas', { nombre, cid: p.cid, pid: p.id }) }));
   $('#bRen').onclick = () => formNombre('Renombrar planta', p.nombre, '', nombre => updateDoc(catRef('plantas', p.id), { nombre }).catch(errEsc));
   $('#bDel').onclick = () => {
     if (ks.length) return toast('Primero elimina sus calderas');
@@ -318,21 +326,65 @@ function vistaPlanta() {
 function vistaCaldera() {
   const k = cal(S.ruta.kid); if (!k) return ir({ cid: S.ruta.cid, pid: S.ruta.pid });
   titulo(k.nombre);
-  const pr = proyectosDe(k.id);
-  app.innerHTML = cabSimple(esc(k.nombre), `${esc(cli(k.cid)?.nombre || '')} · ${esc(pla(k.pid)?.nombre || '')}<br>${k.p} paneles · ${k.n} niveles · ${k.t} tubos`) +
-    `<h3>Proyectos</h3>` +
-    (pr.map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), `${l.anio || ''} · creado por ${esc(l.u)} · ${fecha(l.c)}`)).join('')
+  const shs = shDe(k.id), pr = proyectosDe(k.id), ant = antiguosDe(k.id);
+  app.innerHTML = cabSimple(esc(k.nombre), `${esc(cli(k.cid)?.nombre || '')} · ${esc(pla(k.pid)?.nombre || '')}`) +
+    `<h3>Sobrecalentadores</h3>` +
+    (shs.map(x => itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), dimTxt(x), true)).join('')
+      || '<p class="vacio">Agrega los sobrecalentadores de esta caldera (paneles, tubos y niveles de candados).</p>') +
+    `<button class="btn" id="bSh">${ic('agregar')}Agregar sobrecalentador</button>
+    <h3>Proyectos</h3>` +
+    (pr.map(p => itemNav(`data-prj="${p.id}"`, 'proyecto', esc(p.nombre), `${p.anio} · ${plural(levsDeProy(p.id).length, 'sobrecalentador iniciado', 'sobrecalentadores iniciados')}`)).join('')
       || '<p class="vacio">Aún no hay proyectos. Crea el de este año.</p>') +
-    `<button class="btn pri" id="bPro">${ic('agregar')}Nuevo proyecto</button>
-    <div class="acciones"><button class="btn" id="bEdi">${ic('editar')}Editar caldera</button><button class="btn peligro" id="bDel">${ic('borrar')}Eliminar</button></div>`;
+    `<button class="btn pri" id="bPro">${ic('agregar')}Nuevo proyecto</button>` +
+    (ant.length ? `<h3>Levantamientos anteriores</h3>` + ant.map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), dimTxt(l))).join('') : '') +
+    acciones();
+  app.querySelectorAll('[data-sid]').forEach(b => b.onclick = () => formSobre(sobre(b.dataset.sid), k));
+  app.querySelectorAll('[data-prj]').forEach(b => b.onclick = () => ir({ cid: k.cid, pid: k.pid, kid: k.id, prj: b.dataset.prj }));
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
-  $('#bPro').onclick = () => nuevoProyecto(k);
-  $('#bEdi').onclick = () => formCaldera(k, pla(k.pid));
+  $('#bSh').onclick = () => formSobre(null, k);
+  $('#bPro').onclick = () => formProyecto(null, k);
+  $('#bRen').onclick = () => formNombre('Renombrar caldera', k.nombre, '', nombre => updateDoc(catRef('calderas', k.id), { nombre }).catch(errEsc));
   $('#bDel').onclick = () => {
-    if (pr.length) return toast('Primero elimina sus proyectos (Ajustes, dentro de cada proyecto)');
+    if (shs.length || pr.length || ant.length) return toast('Primero elimina sus sobrecalentadores y proyectos');
     if (!confirm(`¿Eliminar la caldera ${k.nombre}?`)) return;
     writeBatch(db).delete(catRef('calderas', k.id)).commit().catch(errEsc); ir({ cid: k.cid, pid: k.pid });
   };
+}
+
+function vistaProyecto() {
+  const p = proy(S.ruta.prj); if (!p) return ir({ ...S.ruta, prj: null });
+  const k = cal(p.kid), shs = k ? shDe(k.id) : [], levs = levsDeProy(p.id);
+  titulo(`${k?.nombre || ''} · ${p.nombre}`);
+  const huerfanos = levs.filter(l => !shs.some(x => x.id === l.sid));
+  app.innerHTML = cabSimple(esc(p.nombre), `${esc(rutaTxt(p))} · ${p.anio}`) +
+    `<h3>Sobrecalentadores</h3>` +
+    (shs.map(x => {
+      const l = levs.find(l => l.sid === x.id);
+      return itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), l ? `Iniciado por ${esc(l.u)} · ${fecha(l.c)}` : `${dimTxt(x)} · sin iniciar`);
+    }).join('') || '<p class="vacio">La caldera no tiene sobrecalentadores. Vuelve atrás y agrégalos en la caldera.</p>') +
+    huerfanos.map(l => itemNav(`data-id="${l.id}"`, 'grilla', esc(l.nombre), 'Sobrecalentador eliminado de la caldera')).join('') +
+    `<div class="acciones"><button class="btn" id="bRen">${ic('editar')}Nombre y año</button><button class="btn peligro" id="bDel">${ic('borrar')}Eliminar</button></div>`;
+  app.querySelectorAll('[data-sid]').forEach(b => b.onclick = () => abrirSobre(p, sobre(b.dataset.sid)));
+  app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
+  $('#bRen').onclick = () => formProyecto(p, k);
+  $('#bDel').onclick = () => {
+    if (levs.length && prompt(`Se borrará el proyecto "${p.nombre}" con todos sus candados y fotos (${plural(levs.length, 'sobrecalentador', 'sobrecalentadores')}), para todos los usuarios.\nEscribe BORRAR para confirmar.`) !== 'BORRAR') return;
+    if (!levs.length && !confirm(`¿Eliminar el proyecto ${p.nombre}?`)) return;
+    levs.forEach(l => borrarLev(l.id));
+    writeBatch(db).delete(catRef('proyectos', p.id)).commit().catch(errEsc);
+    ir({ cid: p.cid, pid: p.pid, kid: p.kid });
+  };
+}
+
+// abre la grilla del sobrecalentador en el proyecto (la crea la primera vez)
+function abrirSobre(p, x) {
+  const l = levsDeProy(p.id).find(l => l.sid === x.id);
+  if (l) return abrirLev(l.id);
+  const ref = doc(collection(db, 'levantamientos'));
+  const d = { nombre: p.nombre, anio: p.anio, cid: p.cid, pid: p.pid, kid: p.kid, prj: p.id, sid: x.id, p: x.p, n: x.n, t: x.t, nn: x.nn || [], c: Date.now(), u: S.nombre, uid: S.uid };
+  setDoc(ref, d).catch(errEsc);
+  S.levs = [{ id: ref.id, ...d }, ...S.levs];
+  abrirLev(ref.id);
 }
 
 function formNombre(tit, val, ph, ok) {
@@ -342,53 +394,64 @@ function formNombre(tit, val, ph, ok) {
   $('#fOk').onclick = () => { const v = i.value.trim(); if (!v) return toast('Escribe un nombre'); cerrarModal(); ok(v); };
 }
 
-const filaDim = d => `<div class="fila3">
-  <label>Paneles<input id="fP" type="number" inputmode="numeric" value="${d.p}"></label>
-  <label>Niveles<input id="fN" type="number" inputmode="numeric" value="${d.n}"></label>
-  <label>Tubos<input id="fT" type="number" inputmode="numeric" value="${d.t}"></label></div>`;
-const leerDim = () => ({ p: num('#fP', 1, 200), n: num('#fN', 1, 30), t: num('#fT', 2, 100) });
-
-function formCaldera(k, p) {
-  const d = k || ls.get('ties_dim', { p: 25, n: 7, t: 15 });
-  hoja(`<h3>${k ? 'Editar caldera' : 'Nueva caldera · ' + esc(p.nombre)}</h3>
-    <label>Nombre<input id="fNom" value="${esc(k?.nombre || '')}" placeholder="Ej. Caldera Recuperadora"></label>
-    ${filaDim(d)}
-    <p class="nota">Sobrecalentador: un candado entre cada par de tubos. Estas cantidades se precargan en cada proyecto nuevo${k ? ' (los proyectos existentes no cambian)' : ''}.</p>
-    <div class="acciones"><button class="btn" data-x>Cancelar</button><button class="btn pri" id="fOk">Guardar</button></div>`);
+function formSobre(x, k) {
+  const d = x || ls.get('ties_dim', { p: 25, n: 7, t: 15 }), usados = x ? S.levs.filter(l => l.sid === x.id).length : 0;
+  hoja(`<div class="dcab"><h3>${x ? 'Sobrecalentador' : 'Nuevo sobrecalentador · ' + esc(k.nombre)}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
+    <label>Nombre<input id="fNom" value="${esc(x?.nombre || '')}" placeholder="Ej. Sobrecalentador Primario"></label>
+    <div class="fila3">
+      <label>Paneles<input id="fP" type="number" inputmode="numeric" value="${d.p}"></label>
+      <label>Tubos<input id="fT" type="number" inputmode="numeric" value="${d.t}"></label>
+      <label>Niveles<input id="fN" type="number" inputmode="numeric" value="${d.n}"></label>
+    </div>
+    <label>Nombre de cada nivel de candados (opcional, uno por línea)<textarea id="fNiv" rows="4" placeholder="Nivel 1&#10;Nivel 2&#10;…">${esc((x?.nn || []).join('\n'))}</textarea></label>
+    <p class="nota">Un candado entre cada par de tubos. Si escribes los nombres, la cantidad de niveles es la de la lista.${usados ? ` Los ${usados} levantamientos ya iniciados mantienen sus paneles y tubos; los nombres de los niveles sí se actualizan.` : ''}</p>
+    <div class="acciones"><button class="btn" data-x>Cancelar</button><button class="btn pri" id="fOk">Guardar</button></div>
+    ${x ? `<button class="btn peligro" id="fDel">${ic('borrar')}Eliminar sobrecalentador</button>` : ''}`);
+  const fNiv = $('#fNiv'), fN = $('#fN');
+  fNiv.oninput = () => { const c = fNiv.value.split('\n').filter(v => v.trim()).length; if (c) fN.value = c; };
   $('#fOk').onclick = () => {
-    const nombre = $('#fNom').value.trim(), { p: pp, n, t } = leerDim();
-    if (!nombre || !pp || !n || !t) return toast('Revisa el nombre y las cantidades');
-    ls.set('ties_dim', { p: pp, n, t }); cerrarModal();
-    if (k) return updateDoc(catRef('calderas', k.id), { nombre, p: pp, n, t }).catch(errEsc);
-    ir({ cid: p.cid, pid: p.id, kid: crearCat('calderas', { nombre, cid: p.cid, pid: p.id, p: pp, n, t }) });
+    const nombre = $('#fNom').value.trim(), nn = fNiv.value.split('\n').map(v => v.trim()).filter(Boolean);
+    const p = num('#fP', 1, 200), t = num('#fT', 2, 100), n = nn.length || num('#fN', 1, 30);
+    if (!nombre || !p || !t || !n || n > 30) return toast('Revisa el nombre y las cantidades');
+    ls.set('ties_dim', { p, n, t }); cerrarModal();
+    if (x) return updateDoc(catRef('sobrecalentadores', x.id), { nombre, p, n, t, nn }).catch(errEsc);
+    crearCat('sobrecalentadores', { nombre, cid: k.cid, pid: k.pid, kid: k.id, p, n, t, nn }); pantalla();
+  };
+  if (x) $('#fDel').onclick = () => {
+    if (usados) return toast(`Tiene ${plural(usados, 'levantamiento', 'levantamientos')} en proyectos: elimínalos primero`);
+    if (!confirm(`¿Eliminar ${x.nombre}?`)) return;
+    writeBatch(db).delete(catRef('sobrecalentadores', x.id)).commit().catch(errEsc);
+    S.cat.sobrecalentadores = S.cat.sobrecalentadores.filter(y => y.id !== x.id); cerrarModal(); pantalla();
   };
 }
 
-function nuevoProyecto(k) {
-  const anio = new Date().getFullYear();
-  hoja(`<h3>Nuevo proyecto · ${esc(k.nombre)}</h3>
+function formProyecto(p, k) {
+  const anio = p?.anio || new Date().getFullYear();
+  hoja(`<h3>${p ? 'Proyecto' : 'Nuevo proyecto · ' + esc(k?.nombre || '')}</h3>
     <div class="fila2"><label>Año<input id="fAn" type="number" inputmode="numeric" value="${anio}"></label>
-    <label>Nombre<input id="fNom" value="PGP ${anio}"></label></div>
-    ${filaDim(k)}
-    <p class="nota">Cantidades precargadas de la caldera. Se pueden cambiar después en Ajustes.</p>
-    <div class="acciones"><button class="btn" data-x>Cancelar</button><button class="btn pri" id="fOk">Crear</button></div>`);
+    <label>Nombre<input id="fNom" value="${esc(p?.nombre || 'PGP ' + anio)}"></label></div>
+    <p class="nota">Dentro del proyecto aparecen los sobrecalentadores de la caldera, cada uno con su grilla de candados.</p>
+    <div class="acciones"><button class="btn" data-x>Cancelar</button><button class="btn pri" id="fOk">${p ? 'Guardar' : 'Crear'}</button></div>`);
   const an = $('#fAn'), nom = $('#fNom');
   an.oninput = () => { if (/^PGP \d{0,4}$/.test(nom.value)) nom.value = 'PGP ' + an.value; };
   $('#fOk').onclick = () => {
-    const a = num('#fAn', 1990, 2100), nombre = nom.value.trim(), { p, n, t } = leerDim();
-    if (!a || !nombre || !p || !n || !t) return toast('Revisa el año, el nombre y las cantidades');
-    if (proyectosDe(k.id).some(l => l.anio === a && l.nombre === nombre) && !confirm(`Ya existe "${nombre}" en ${a}. ¿Crear otro igual?`)) return;
-    const ref = doc(collection(db, 'levantamientos'));
-    S.levId = ref.id; ls.set('ties_lev', ref.id);
-    setDoc(ref, { nombre, anio: a, cid: k.cid, pid: k.pid, kid: k.id, p, n, t, c: Date.now(), u: S.nombre, uid: S.uid }).catch(errEsc);
+    const a = num('#fAn', 1990, 2100), nombre = nom.value.trim();
+    if (!a || !nombre) return toast('Revisa el año y el nombre');
     cerrarModal();
+    if (p) {
+      const b = writeBatch(db).update(catRef('proyectos', p.id), { nombre, anio: a });
+      levsDeProy(p.id).forEach(l => b.update(levRef(l.id), { nombre, anio: a }));
+      return b.commit().catch(errEsc);
+    }
+    if (proyectosDe(k.id).some(x => x.anio === a && x.nombre === nombre) && !confirm(`Ya existe "${nombre}" en ${a}. ¿Crear otro igual?`)) return;
+    ir({ cid: k.cid, pid: k.pid, kid: k.id, prj: crearCat('proyectos', { nombre, anio: a, cid: k.cid, pid: k.pid, kid: k.id }) });
   };
 }
 
 function tituloLev() {
   if (!S.lev) return;
-  const k = cal(S.lev.kid);
-  titulo(k ? `${k.nombre} · ${S.lev.nombre}` : S.lev.nombre);
+  const x = sobre(S.lev.sid), k = cal(S.lev.kid);
+  titulo(x ? `${x.nombre} · ${S.lev.nombre}` : k ? `${k.nombre} · ${S.lev.nombre}` : S.lev.nombre);
 }
 
 function abrirLev(id) {
@@ -397,7 +460,7 @@ function abrirLev(id) {
   S.lev = l; S.levId = id; ls.set('ties_lev', id);
   S.nivel = Math.min(ls.get('ties_nivel_' + id, 1), l.n);
   S.inds = new Map(); S.primera = true; S.vista = 'grilla'; S.filtroN = 0;
-  if (l.kid) { S.ruta = { cid: l.cid, pid: l.pid, kid: l.kid }; ls.set('ties_ruta', S.ruta); }
+  if (l.kid) { S.ruta = { cid: l.cid, pid: l.pid, kid: l.kid, prj: l.prj || null }; ls.set('ties_ruta', S.ruta); }
   tituloLev();
   S.unsubInds?.();
   S.unsubInds = onSnapshot(indCol(), { includeMetadataChanges: true }, snap => {
@@ -495,8 +558,8 @@ function cabNivel(sub, chips) {
 
 function vistaGrilla() {
   const l = S.lev, n = S.nivel, cnt = conteoNiveles();
-  const chips = range(l.n).map(i => `<button class="chip ${i === n ? 'on' : ''}" data-n="${i}">N${i}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
-  return cabNivel(`<b>Candados — Nivel ${n}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, chips) +
+  const chips = range(l.n).map(i => `<button class="chip ${i === n ? 'on' : ''}" data-n="${i}">${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
+  return cabNivel(`<b>Candados — ${esc(nivelNom(n))}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, chips) +
     `<div class="gwrap" id="gwrap">${svgNivel(n)}</div>
     <div class="leyenda"><span class="ley"><span class="sw ind"></span>sin foto</span><span class="ley"><span class="sw foto"></span>con foto</span>
       <span>${l.t > 16 ? 'Toca un panel para abrirlo en grande.' : 'Toca el candado entre dos tubos, o el nombre del panel para verlo en grande.'}</span></div>`;
@@ -507,8 +570,8 @@ function vistaLista() {
   const xs = [...S.inds.values()].filter(x => !f || x.n === f).sort(ordenar);
   const porTipo = {}; xs.forEach(x => porTipo[x.k] = (porTipo[x.k] || 0) + 1);
   const chips = `<button class="chip ${!f ? 'on' : ''}" data-f="0">Todos<i>${S.inds.size}</i></button>` +
-    range(l.n).map(i => `<button class="chip ${i === f ? 'on' : ''}" data-f="${i}">N${i}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
-  return cabNivel(`<b>Indicaciones${f ? ' — Nivel ' + f : ''}</b><span>${xs.length}${Object.keys(porTipo).length ? ' · ' + TIPOS.filter(t => porTipo[t]).map(t => `${t} ${porTipo[t]}`).join(' · ') : ''}</span>`, chips) +
+    range(l.n).map(i => `<button class="chip ${i === f ? 'on' : ''}" data-f="${i}">${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
+  return cabNivel(`<b>Indicaciones${f ? ' — ' + esc(nivelNom(f)) : ''}</b><span>${xs.length}${Object.keys(porTipo).length ? ' · ' + TIPOS.filter(t => porTipo[t]).map(t => `${t} ${porTipo[t]}`).join(' · ') : ''}</span>`, chips) +
     (xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${x.nf > 0 ? 'foto' : 'ind'}">${esc(ini(x))}</span>
       <div><b>${codigo(x)}</b> · ${esc(tipoTxt(x))}${x.nota ? `<br><span class="nt">${esc(x.nota)}</span>` : ''}
       <small>${esc(x.u)} · ${fecha(x.t)}${x.uu && x.uu !== x.u ? ` · editó ${esc(x.uu)}` : ''} · ${ic('camara', 14)} ${x.nf || 0}</small></div></button>`).join('')
@@ -767,7 +830,7 @@ async function lamina(n) {
   g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
   g.fillStyle = '#0E3A5F'; g.fillRect(0, 0, W, 84);
   g.textBaseline = 'middle';
-  g.fillStyle = '#fff'; g.font = 'bold 30px sans-serif'; g.fillText(`Candados sobrecalentador — Nivel ${n}`, m, 32);
+  g.fillStyle = '#fff'; g.font = 'bold 30px sans-serif'; g.fillText(`Candados ${sobre(l.sid)?.nombre || 'sobrecalentador'} — ${nivelNom(n)}`, m, 32);
   g.fillStyle = '#F5A300'; g.font = '18px sans-serif'; g.fillText(`${nombreCompleto(l)} · ${xs.length} indicaciones · ${fecha(Date.now())}`, m, 64);
   g.font = '16px sans-serif'; const ly = 108;
   g.fillStyle = '#F48FB1'; g.fillRect(m, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('Sin foto', m + 24, ly);
@@ -804,7 +867,7 @@ function exportar() {
   const n = S.nivel, nom = limpio(nombreCompleto(S.lev));
   hoja(`<h3>Exportar</h3>
     <button class="btn" id="eCsv">${ic('planilla')}Planilla (CSV para Excel)</button>
-    <button class="btn" id="eLam">${ic('lamina')}Lámina del nivel ${n} (PNG)</button>
+    <button class="btn" id="eLam">${ic('lamina')}Lámina: ${esc(nivelNom(n))} (PNG)</button>
     <button class="btn pri" id="eZip">${ic('zip')}<span>ZIP: fotos + láminas + planilla</span></button>
     <p class="nota">El ZIP ordena las fotos como BoilerImage: Nivel N / Pxx Tyy-zz / Nn-Pxx-Tyy-zz_tipo_k.jpg.</p>
     <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
@@ -816,7 +879,7 @@ function exportar() {
 async function verLamina(n) {
   let d;
   try { d = (await lamina(n)).toDataURL('image/png'); } catch (e) { return toast('No se pudo armar la lámina: ' + e.message, 5000); }
-  visor(d, { titulo: `Lámina nivel ${n}`, nombre: `Candados Nivel ${n}.png` });
+  visor(d, { titulo: `Lámina · ${nivelNom(n)}`, nombre: `Candados ${limpio(nombreCompleto(S.lev))} Nivel ${n}.png` });
 }
 
 async function exportarZip() {
@@ -854,12 +917,13 @@ async function exportarZip() {
 // ---------- ajustes ----------
 function ajustes() {
   const l = S.lev;
+  const deProy = !!l.prj;
   hoja(`<h3>Ajustes</h3>
-    <h4>Proyecto (cambia para todos)</h4>
-    <label>Caldera<select id="aCal"><option value="">— Sin asignar —</option>${S.cat.calderas.map(k => ({ k, t: rutaTxt({ cid: k.cid, pid: k.pid, kid: k.id }) }))
+    <h4>${deProy ? esc(sobre(l.sid)?.nombre || 'Sobrecalentador') + ' en ' + esc(l.nombre) : 'Levantamiento'} (cambia para todos)</h4>
+    ${deProy ? '<p class="nota">El nombre y el año se cambian en el proyecto; los nombres de los niveles, en el sobrecalentador de la caldera.</p>' : `<label>Caldera<select id="aCal"><option value="">— Sin asignar —</option>${S.cat.calderas.map(k => ({ k, t: rutaTxt({ cid: k.cid, pid: k.pid, kid: k.id }) }))
       .sort((a, b) => a.t.localeCompare(b.t, 'es')).map(({ k, t }) => `<option value="${k.id}" ${k.id === l.kid ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
     <div class="fila2"><label>Año<input id="aAn" type="number" inputmode="numeric" value="${l.anio || new Date(l.c > 946684800000 ? l.c : Date.now()).getFullYear()}"></label>
-    <label>Nombre<input id="aNom" value="${esc(l.nombre)}"></label></div>
+    <label>Nombre<input id="aNom" value="${esc(l.nombre)}"></label></div>`}
     <div class="fila3">
       <label>Paneles<input id="aP" type="number" inputmode="numeric" value="${l.p}"></label>
       <label>Niveles<input id="aN" type="number" inputmode="numeric" value="${l.n}"></label>
@@ -870,22 +934,22 @@ function ajustes() {
     <label class="sw"><input type="checkbox" id="aCam" ${ls.get('ties_cam', true) ? 'checked' : ''}> Abrir la cámara al marcar un candado</label>
     <label class="sw"><input type="checkbox" id="aSel" ${ls.get('ties_sello', true) ? 'checked' : ''}> Sello con código, usuario y fecha en la foto</label>
     <h4>Zona de peligro</h4>
-    <button class="btn peligro" id="aDel">${ic('borrar')}Eliminar proyecto</button>
+    <button class="btn peligro" id="aDel">${ic('borrar')}${deProy ? 'Borrar los candados de este sobrecalentador' : 'Eliminar levantamiento'}</button>
     <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
   $('#aCam').onchange = e => ls.set('ties_cam', e.target.checked);
   $('#aSel').onchange = e => ls.set('ties_sello', e.target.checked);
   $('#aOk').onclick = () => {
-    const nombre = $('#aNom').value.trim(), p = num('#aP', 1, 200), n = num('#aN', 1, 30), t = num('#aT', 2, 100);
-    const anio = num('#aAn', 1990, 2100), k = cal($('#aCal').value);
+    const nombre = deProy ? l.nombre : $('#aNom').value.trim(), p = num('#aP', 1, 200), n = num('#aN', 1, 30), t = num('#aT', 2, 100);
+    const anio = deProy ? l.anio : num('#aAn', 1990, 2100), k = deProy ? cal(l.kid) : cal($('#aCal').value);
     if (!nombre || !p || !n || !t || !anio) return toast('Revisa el año, el nombre y las cantidades');
     const fuera = [...S.inds.values()].filter(x => x.n > n || x.p > p || x.c > t - 1).length;
     if (fuera && !confirm(`${fuera} indicaciones quedan fuera de la grilla nueva (no se borran, siguen en la Lista y el Excel). ¿Continuar?`)) return;
-    updateDoc(levRef(l.id), { nombre, p, n, t, anio, kid: k?.id || null, pid: k?.pid || null, cid: k?.cid || null }).catch(errEsc);
-    if (k) { S.ruta = { cid: k.cid, pid: k.pid, kid: k.id }; ls.set('ties_ruta', S.ruta); }
+    updateDoc(levRef(l.id), deProy ? { p, n, t } : { nombre, p, n, t, anio, kid: k?.id || null, pid: k?.pid || null, cid: k?.cid || null }).catch(errEsc);
+    if (k && !deProy) { S.ruta = { cid: k.cid, pid: k.pid, kid: k.id }; ls.set('ties_ruta', S.ruta); }
     cerrarModal(); toast('Ajustes guardados');
   };
   $('#aDel').onclick = () => {
-    if (prompt(`Se borrará "${l.nombre}" con todas sus indicaciones y fotos, para todos los usuarios.\nEscribe BORRAR para confirmar.`) !== 'BORRAR') return;
+    if (prompt(`Se borrará "${nombreCompleto(l)}" con todas sus indicaciones y fotos, para todos los usuarios.\nEscribe BORRAR para confirmar.`) !== 'BORRAR') return;
     const id = l.id; cerrarLev(); borrarLev(id);
   };
 }
