@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.0';
+const VERSION = '2.0.1';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -1359,8 +1359,8 @@ async function datosInforme(avance) {
     if (x.nf > 0) fs = (await getDocs(query(fotosCol(x.id), orderBy('t')))).docs.map(d => d.data());
     const g = fs.find(f => tipoFoto(f) === 'general'), d = fs.find(f => tipoFoto(f) === 'detalle');
     c.fichas.push({
-      titulo: `${codigo(x)}  ·  ${tipoTxt(x)}`,
-      ubic: `${nivelNom(x.n)} · Panel ${pad(x.p)} · candado entre tubos ${x.c} y ${x.c + 1} · registró ${x.u}, ${fecha(x.t)}`,
+      titulo: `Nivel ${pad(x.n)}${(nombresNiv(l)[x.n - 1]) ? ' (' + nombresNiv(l)[x.n - 1] + ')' : ''}, Panel N°${pad(x.p)}, Tubos N°${pad(x.c)}-${pad(x.c + 1)}  ·  ${tipoTxt(x)}`,
+      ubic: `Código ${codigo(x)} · candado entre los tubos ${x.c} y ${x.c + 1} · registró ${x.u}, ${fecha(x.t)}`,
       general: g ? await medir(g.d) : null, detalle: d ? await medir(d.d) : null, obs: x.nota || ''
     });
   }
