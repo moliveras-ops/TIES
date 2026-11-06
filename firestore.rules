@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function miembro() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/miembros/$(request.auth.uid));
+    }
+    // La clave del equipo vive en config/acceso (campo "clave"); nadie la puede leer desde la app
+    match /config/{d} { allow read, write: if false; }
+    match /miembros/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.clave == get(/databases/$(database)/documents/config/acceso).data.clave;
+      allow update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre', 't', 'clave'])
+        && request.resource.data.clave == get(/databases/$(database)/documents/config/acceso).data.clave;
+    }
+    match /levantamientos/{doc=**} {
+      allow read, write: if miembro();
+    }
+  }
+}

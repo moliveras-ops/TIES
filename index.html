@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>TIES</title>
+<meta name="theme-color" content="#0E3A5F">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <button id="atras" hidden aria-label="Volver">‹</button>
+  <img src="icon.svg" alt="">
+  <h1 id="titulo">TIES</h1>
+  <span id="estado"></span>
+  <button id="menuBtn" aria-label="Menú">⋮</button>
+</header>
+<main id="app"><p class="vacio">Cargando…</p></main>
+<div id="modal" hidden></div>
+<div id="visor" hidden></div>
+<div id="toast"></div>
+<input type="file" id="cam" accept="image/*" capture="environment" hidden>
+<input type="file" id="gal" accept="image/*" multiple hidden>
+<script type="module" src="app.js"></script>
+</body>
+</html>
