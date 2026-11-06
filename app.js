@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '1.5';
+const VERSION = '1.6';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -58,6 +58,16 @@ const key = (n, p, c) => `N${n}-P${pad(p)}-C${pad(c)}`;
 const codigo = x => `N${x.n}-P${pad(x.p)}-T${pad(x.c)}-${pad(x.c + 1)}`;
 const tipoTxt = x => x.k === 'Otro' && x.o ? x.o : x.k;
 const ini = x => (x.k || '?')[0];
+// fotos: cada indicación lleva foto general y foto de detalle (como BoilerImage)
+const FT = { general: 'General', detalle: 'Detalle' };
+const nG = x => x.ng ?? (x.nd === undefined ? x.nf || 0 : 0);
+const nD = x => x.nd || 0;
+const completa = x => nG(x) > 0 && nD(x) > 0;
+// cambio del conteo general/detalle; en indicaciones antiguas (solo nf) se fijan los dos valores la primera vez
+const conteoFotos = (x, tp, d) => x.ng === undefined && x.nd === undefined
+  ? { ng: Math.max(0, (x.nf || 0) + (tp === 'general' ? d : 0)), nd: Math.max(0, tp === 'detalle' ? d : 0) }
+  : { [tp === 'detalle' ? 'nd' : 'ng']: increment(d) };
+const fotosTxt = x => `General ${nG(x)} · Detalle ${nD(x)}`;
 const ordenar = (a, b) => a.n - b.n || a.p - b.p || a.c - b.c;
 const errEsc = e => toast('No se guardó: ' + (e.code || e.message));
 
@@ -356,7 +366,7 @@ function vistaCaldera() {
   app.querySelectorAll('[data-sid]').forEach(b => b.onclick = () => formSobre(sobre(b.dataset.sid), k));
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
   $('#bSh').onclick = () => formSobre(null, k);
-  $('#kImg').onclick = () => { S.camK = null; S.croquisK = k.id; const i = $('#gal'); i.value = ''; i.click(); };
+  $('#kImg').onclick = () => cargarCroquis(k.id);
   if ($('#kImgDel')) $('#kImgDel').onclick = () => { if (confirm('¿Quitar la imagen del croquis?')) updateDoc(catRef('calderas', k.id), { img: null }).catch(errEsc); };
   if ($('#kImgV')) $('#kImgV').onclick = () => visor(k.img, { titulo: 'Croquis · ' + k.nombre, nombre: `Croquis ${limpio(k.nombre)}.jpg` });
   $('#bRen').onclick = () => formNombre('Renombrar caldera', k.nombre, '', nombre => updateDoc(catRef('calderas', k.id), { nombre }).catch(errEsc));
@@ -556,7 +566,7 @@ function filaSVG(n, p, y, L) {
   for (let c = 1; c < t; c++) {
     const cx = L + c * u, x = S.inds.get(key(n, p, c));
     s += x
-      ? `<rect x="${cx - 7.5}" y="${my - 6.5}" width="15" height="13" rx="2.5" class="${x.nf > 0 ? 'cf' : 'ci'}"/><text x="${cx}" y="${my + 0.5}" class="${x.nf > 0 ? 'tf' : 'ti'}">${esc(ini(x))}</text>`
+      ? `<rect x="${cx - 7.5}" y="${my - 6.5}" width="15" height="13" rx="2.5" class="${completa(x) ? 'cf' : 'ci'}"/><text x="${cx}" y="${my + 0.5}" class="${completa(x) ? 'tf' : 'ti'}">${esc(ini(x))}</text>`
       : `<rect x="${cx - 6.5}" y="${my - 4}" width="13" height="8" rx="2" class="cv"/>`;
   }
   return s;
@@ -642,12 +652,17 @@ function tocarCroquis(e, el, kid, prj) {
 }
 function bloqueCroquis(kid) {
   const k = cal(kid); if (!k || !shDe(kid).length) return '';
-  return `<div class="cqtit">Croquis · ${esc(k.nombre)}</div><div class="cq" id="cq">${svgCroquis(kid, S.lev?.sid, S.nivel, S.lev ? conteoNiveles() : {})}</div>
-    ${k.img ? `<button class="cqimg" id="cqImg"><img src="${k.img}" alt=""><span>Croquis de la caldera</span></button>` : ''}`;
+  return `<div class="cqtit">Croquis · ${esc(k.nombre)}</div>
+    ${k.img ? `<button class="cqimg" id="cqImg"><img src="${k.img}" alt=""><span>Croquis referencial · toca para ampliar</span></button>` : ''}
+    <button class="btn chico cqcarga" id="cqCarga">${ic('galeria')}${k.img ? 'Cambiar croquis referencial' : 'Cargar croquis referencial'}</button>
+    <div class="cqtit sub">Niveles · toca para navegar</div>
+    <div class="cq" id="cq">${svgCroquis(kid, S.lev?.sid, S.nivel, S.lev ? conteoNiveles() : {})}</div>`;
 }
+function cargarCroquis(kid) { S.camK = null; S.croquisK = kid; const i = $('#gal'); i.value = ''; i.click(); }
 function conectarCroquis(kid, prj) {
   app.querySelectorAll('#cq').forEach(c => c.onclick = e => tocarCroquis(e, c, kid, prj));
   const b = $('#cqImg'); if (b) b.onclick = () => visor(cal(kid).img, { titulo: 'Croquis · ' + cal(kid).nombre, nombre: `Croquis ${limpio(cal(kid).nombre)}.jpg` });
+  const c = $('#cqCarga'); if (c) c.onclick = () => cargarCroquis(kid);
 }
 
 function vistaGrilla() {
@@ -658,7 +673,7 @@ function vistaGrilla() {
   return cabNivel(`<b>Candados — ${esc(nivelNom(n))}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, bCq + chips) +
     `<div class="${cq ? 'vgr' : ''}">${cq ? `<aside class="lado">${cq}</aside>` : ''}<div>
     <div class="gwrap" id="gwrap">${svgNivel(n)}</div>
-    <div class="leyenda"><span class="ley"><span class="sw ind"></span>sin foto</span><span class="ley"><span class="sw foto"></span>con foto</span>
+    <div class="leyenda"><span class="ley"><span class="sw ind"></span>falta foto general o de detalle</span><span class="ley"><span class="sw foto"></span>con general y detalle</span>
       <span>${l.t > 16 ? 'Toca un panel para abrirlo en grande.' : 'Toca el candado entre dos tubos, o el nombre del panel para verlo en grande.'}</span></div></div></div>`;
 }
 
@@ -669,9 +684,9 @@ function vistaLista() {
   const chips = `<button class="chip ${!f ? 'on' : ''}" data-f="0">Todos<i>${S.inds.size}</i></button>` +
     range(l.n).map(i => `<button class="chip ${i === f ? 'on' : ''}" data-f="${i}">${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
   return cabNivel(`<b>Indicaciones${f ? ' — ' + esc(nivelNom(f)) : ''}</b><span>${xs.length}${Object.keys(porTipo).length ? ' · ' + TIPOS.filter(t => porTipo[t]).map(t => `${t} ${porTipo[t]}`).join(' · ') : ''}</span>`, chips) +
-    (xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${x.nf > 0 ? 'foto' : 'ind'}">${esc(ini(x))}</span>
+    (xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${completa(x) ? 'foto' : 'ind'}">${esc(ini(x))}</span>
       <div><b>${codigo(x)}</b> · ${esc(tipoTxt(x))}${x.nota ? `<br><span class="nt">${esc(x.nota)}</span>` : ''}
-      <small>${esc(x.u)} · ${fecha(x.t)}${x.uu && x.uu !== x.u ? ` · editó ${esc(x.uu)}` : ''} · ${ic('camara', 14)} ${x.nf || 0}</small></div></button>`).join('')
+      <small>${esc(x.u)} · ${fecha(x.t)}${x.uu && x.uu !== x.u ? ` · editó ${esc(x.uu)}` : ''} · ${ic('camara', 14)} ${fotosTxt(x)}</small></div></button>`).join('')
     || '<p class="vacio">Sin indicaciones registradas.</p>');
 }
 
@@ -686,9 +701,12 @@ function conectar() {
     conectarCroquis(S.lev.kid, S.lev.prj);
     const bc = $('#bCq'); if (bc) bc.onclick = () => {
       hoja(`<div class="dcab"><h3>Croquis · ${esc(cal(S.lev.kid)?.nombre || '')}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
-        <p class="nota">Toca un nivel para verlo, u otro sobrecalentador para abrirlo.</p><div class="cq grande" id="cqH">${svgCroquis(S.lev.kid, S.lev.sid, S.nivel, conteoNiveles())}</div>
-        ${cal(S.lev.kid)?.img ? `<img class="cqfoto" src="${cal(S.lev.kid).img}" alt="">` : ''}`);
-      const c = $('#cqH'); c.onclick = e => tocarCroquis(e, c, S.lev.kid, S.lev.prj);
+        ${cal(S.lev.kid)?.img ? `<img class="cqfoto" id="cqHImg" src="${cal(S.lev.kid).img}" alt="">` : ''}
+        <button class="btn chico" id="cqHCarga">${ic('galeria')}${cal(S.lev.kid)?.img ? 'Cambiar croquis referencial' : 'Cargar croquis referencial'}</button>
+        <p class="nota">Toca un nivel para verlo, u otro sobrecalentador para abrirlo.</p><div class="cq grande" id="cqH">${svgCroquis(S.lev.kid, S.lev.sid, S.nivel, conteoNiveles())}</div>`);
+      const c = $('#cqH'), kid = S.lev.kid; c.onclick = e => tocarCroquis(e, c, kid, S.lev.prj);
+      $('#cqHCarga').onclick = () => { cerrarModal(); cargarCroquis(kid); };
+      const im = $('#cqHImg'); if (im) im.onclick = () => visor(cal(kid).img, { titulo: 'Croquis · ' + cal(kid).nombre, nombre: `Croquis ${limpio(cal(kid).nombre)}.jpg` });
     };
   }
   app.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { S.filtroN = +b.dataset.f; render(); });
@@ -732,8 +750,8 @@ function pintarPanel() {
     if (fila === 1 && c >= 1 && c < S.lev.t) tocarCandado(p, c);
   };
   const xs = range(S.lev.t - 1).map(c => S.inds.get(key(n, p, c))).filter(Boolean);
-  $('#pLista').innerHTML = xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${x.nf > 0 ? 'foto' : 'ind'}">${esc(ini(x))}</span>
-    <div><b>${codigo(x)}</b> · ${esc(tipoTxt(x))}<small>${esc(x.u)} · ${ic('camara', 14)} ${x.nf || 0}</small></div></button>`).join('')
+  $('#pLista').innerHTML = xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${completa(x) ? 'foto' : 'ind'}">${esc(ini(x))}</span>
+    <div><b>${codigo(x)}</b> · ${esc(tipoTxt(x))}<small>${esc(x.u)} · ${ic('camara', 14)} ${fotosTxt(x)}</small></div></button>`).join('')
     || '<p class="vacio">Sin indicaciones en este panel.</p>';
   $('#pLista').querySelectorAll('[data-k]').forEach(b => b.onclick = () => { S.panel = null; detalle(b.dataset.k); });
 }
@@ -755,35 +773,44 @@ function tocarCandado(p, c) {
     S.inds.set(k, { id: k, ...x });
     S.onClose = null; $('#modal').hidden = true;
     render(); detalle(k);
-    if (ls.get('ties_cam', true)) abrirCamara(k, false);
+    if (ls.get('ties_cam', true)) abrirCamara(k, false, 'general');
   });
 }
 
-function abrirCamara(k, galeria) {
-  S.camK = k; const i = galeria ? $('#gal') : $('#cam'); i.value = ''; i.click();
+function abrirCamara(k, galeria, tp = 'general') {
+  S.camK = k; S.camTp = tp; const i = galeria ? $('#gal') : $('#cam'); i.value = ''; i.click();
 }
 
 $('#cam').onchange = $('#gal').onchange = async e => {
   if (S.croquisK) {
     const kid = S.croquisK, f = e.target.files[0]; S.croquisK = null; e.target.value = '';
     if (!f) return;
-    try { const d = await comprimir(f, null); updateDoc(catRef('calderas', kid), { img: d }).catch(errEsc); toast('Croquis guardado'); }
+    try {
+      const d = await comprimir(f, null);
+      updateDoc(catRef('calderas', kid), { img: d }).catch(errEsc);
+      const k = cal(kid); if (k) k.img = d;
+      toast('Croquis guardado para toda la caldera'); if (S.lev) render(); else pantalla();
+    }
     catch (err) { toast('No se pudo procesar la imagen: ' + err.message, 5000); }
     return;
   }
-  const files = [...e.target.files], k = S.camK; e.target.value = '';
+  const files = [...e.target.files], k = S.camK, tp = S.camTp === 'detalle' ? 'detalle' : 'general'; e.target.value = '';
   if (!k || !files.length || !S.lev) return;
   for (const f of files) {
     try {
-      const d = await comprimir(f, S.inds.get(k));
-      setDoc(doc(fotosCol(k)), { d, t: Date.now(), u: S.nombre, uid: S.uid }).catch(errEsc);
-      updateDoc(indRef(k), { nf: increment(1), uu: S.nombre, ut: Date.now() }).catch(errEsc);
-      toast('Foto guardada' + (navigator.onLine ? '' : ' (se sube al tener señal)'));
+      const x = S.inds.get(k), d = await comprimir(f, x, tp);
+      setDoc(doc(fotosCol(k)), { d, tp, t: Date.now(), u: S.nombre, uid: S.uid }).catch(errEsc);
+      // la primera vez que se separan, las fotos antiguas cuentan como generales
+      updateDoc(indRef(k), { ...conteoFotos(x, tp, 1), nf: increment(1), uu: S.nombre, ut: Date.now() }).catch(errEsc);
+      if (x) S.inds.set(k, { ...x, ng: nG(x) + (tp === 'general'), nd: nD(x) + (tp === 'detalle') });
+      const falta = x && tp === 'general' && !nD(x);
+      toast(`Foto ${FT[tp].toLowerCase()} guardada` + (falta ? '. Ahora toma la foto de detalle.' : '') + (navigator.onLine ? '' : ' (se sube al tener señal)'), falta ? 4500 : 2600);
+      if (S.detalle === k) refrescarDetalle();
     } catch (err) { toast('No se pudo procesar la foto: ' + err.message, 5000); }
   }
 };
 
-async function comprimir(file, x) {
+async function comprimir(file, x, tp) {
   let src;
   try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
   catch {
@@ -799,7 +826,7 @@ async function comprimir(file, x) {
     if (sello) {
       const fs = Math.round(bh * 0.34);
       g.fillStyle = '#0E3A5F'; g.fillRect(0, h, w, bh); g.textBaseline = 'middle';
-      g.fillStyle = '#fff'; g.font = `bold ${fs}px sans-serif`; g.fillText(`${codigo(x)} · ${tipoTxt(x)}`, fs * 0.6, h + bh * 0.3);
+      g.fillStyle = '#fff'; g.font = `bold ${fs}px sans-serif`; g.fillText(`${codigo(x)} · ${tipoTxt(x)}${tp ? ' · ' + FT[tp] : ''}`, fs * 0.6, h + bh * 0.3);
       g.fillStyle = '#F5A300'; g.font = `${Math.round(fs * 0.8)}px sans-serif`; g.fillText(`${nombreCompleto(S.lev)} · ${S.nombre} · ${fecha(Date.now())}`, fs * 0.6, h + bh * 0.72);
     }
     for (const q of [0.75, 0.62, 0.5]) { const d = cv.toDataURL('image/jpeg', q); if (d.length < 900000) return d; }
@@ -817,15 +844,18 @@ function detalle(k) {
     <div class="tipos" id="dTipos"></div>
     <label>Nota<textarea id="dNota" rows="3" placeholder="Descripción, largo, ubicación…"></textarea></label>
     ${SR ? `<button class="btn chico" id="dMic">${ic('mic')}<span>Dictar nota</span></button>` : ''}
-    <div class="fotos" id="dFotos"></div>
-    <div class="acciones"><button class="btn pri" id="dCam">${ic('camara')}Foto</button><button class="btn" id="dGal">${ic('galeria')}Galería</button></div>
+    ${['general', 'detalle'].map(tp => `<div class="secfoto" id="sec_${tp}"><h4>${ic('camara', 18)} Foto ${tp === 'general' ? 'general' : 'de detalle'} <span id="est_${tp}"></span></h4>
+      <div class="fotos" id="dFotos_${tp}"></div>
+      <div class="acciones"><button class="btn" id="dCam_${tp}">${ic('camara')}${FT[tp]}</button><button class="btn" id="dGal_${tp}">${ic('galeria')}Galería</button></div></div>`).join('')}
     <p class="meta" id="dMeta"></p>
     <button class="btn peligro" id="dDel">${ic('borrar')}Quitar indicación</button>`, cerrarDetalle);
   const nota = $('#dNota');
   nota.oninput = () => S.notaSucia = true;
   nota.onblur = guardarNota;
-  $('#dCam').onclick = () => abrirCamara(k, false);
-  $('#dGal').onclick = () => abrirCamara(k, true);
+  ['general', 'detalle'].forEach(tp => {
+    $('#dCam_' + tp).onclick = () => abrirCamara(k, false, tp);
+    $('#dGal_' + tp).onclick = () => abrirCamara(k, true, tp);
+  });
   $('#dDel').onclick = quitarInd;
   if (SR) $('#dMic').onclick = () => {
     const r = new SR(); r.lang = 'es-CL'; r.interimResults = false;
@@ -847,23 +877,34 @@ function refrescarDetalle() {
   t.querySelectorAll('[data-tp]').forEach(b => b.onclick = () => cambiarTipo(b.dataset.tp));
   const nota = $('#dNota');
   if (document.activeElement !== nota && !S.notaSucia && nota.value !== (x.nota || '')) nota.value = x.nota || '';
+  // resaltar la foto que falta (primero la general, luego la de detalle)
+  const falta = !nG(x) ? 'general' : !nD(x) ? 'detalle' : null;
+  ['general', 'detalle'].forEach(tp => {
+    const n = tp === 'general' ? nG(x) : nD(x);
+    $('#dCam_' + tp).classList.toggle('pri', tp === falta);
+    $('#est_' + tp).innerHTML = n ? `<b class="ok">✓ ${n}</b>` : '<b class="pend">falta</b>';
+  });
   $('#dMeta').innerHTML = `Registró <b>${esc(x.u)}</b> · ${fecha(x.t)}${x.ut ? `<br>Último cambio: <b>${esc(x.uu)}</b> · ${fecha(x.ut)}` : ''}`;
 }
 
+const tipoFoto = f => f.tp === 'detalle' ? 'detalle' : 'general';
 function pintarFotos() {
-  const el = $('#dFotos'); if (!el) return;
-  el.innerHTML = S.fotos.map((f, i) => `<img data-i="${i}" src="${f.d}" alt="">`).join('');
-  el.querySelectorAll('img').forEach(im => im.onclick = () => {
-    const f = S.fotos[+im.dataset.i], x = S.inds.get(S.detalle), j = +im.dataset.i + 1;
-    visor(f.d, {
-      titulo: `${codigo(x)} · foto ${j} · ${f.u}`, nombre: `${codigo(x)}_${limpio(tipoTxt(x))}_${j}.jpg`,
-      eliminar: () => {
-        if (!confirm('¿Eliminar esta foto para todos?')) return;
-        const b = writeBatch(db);
-        b.delete(doc(fotosCol(S.detalle), f.id));
-        b.update(indRef(S.detalle), { nf: increment(-1), uu: S.nombre, ut: Date.now() });
-        b.commit().catch(errEsc); cerrarVisor();
-      }
+  ['general', 'detalle'].forEach(tp => {
+    const el = $('#dFotos_' + tp); if (!el) return;
+    const fs = S.fotos.filter(f => tipoFoto(f) === tp);
+    el.innerHTML = fs.map((f, i) => `<img data-i="${i}" src="${f.d}" alt="">`).join('');
+    el.querySelectorAll('img').forEach(im => im.onclick = () => {
+      const f = fs[+im.dataset.i], x = S.inds.get(S.detalle), j = +im.dataset.i + 1;
+      visor(f.d, {
+        titulo: `${codigo(x)} · ${FT[tp].toLowerCase()} ${j} · ${f.u}`, nombre: `${codigo(x)}_${limpio(tipoTxt(x))}_${tp}_${j}.jpg`,
+        eliminar: () => {
+          if (!confirm('¿Eliminar esta foto para todos?')) return;
+          const b = writeBatch(db);
+          b.delete(doc(fotosCol(S.detalle), f.id));
+          b.update(indRef(S.detalle), { ...conteoFotos(S.inds.get(S.detalle) || {}, tp, -1), nf: increment(-1), uu: S.nombre, ut: Date.now() });
+          b.commit().catch(errEsc); cerrarVisor();
+        }
+      });
     });
   });
 }
@@ -946,9 +987,9 @@ async function lamina(n) {
   g.fillStyle = '#fff'; g.font = 'bold 30px sans-serif'; g.fillText(`Candados ${sobre(l.sid)?.nombre || 'sobrecalentador'} — ${nivelNom(n)}`, m, 32);
   g.fillStyle = '#F5A300'; g.font = '18px sans-serif'; g.fillText(`${nombreCompleto(l)} · ${xs.length} indicaciones · ${fecha(Date.now())}`, m, 64);
   g.font = '16px sans-serif'; const ly = 108;
-  g.fillStyle = '#F48FB1'; g.fillRect(m, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('Sin foto', m + 24, ly);
-  g.fillStyle = '#D32F2F'; g.fillRect(m + 120, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('Con foto', m + 144, ly);
-  g.fillText('G Grieta · R Rotura · D Desgarro · O Otro · candado entre dos tubos', m + 250, ly);
+  g.fillStyle = '#F48FB1'; g.fillRect(m, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('Falta foto', m + 24, ly);
+  g.fillStyle = '#D32F2F'; g.fillRect(m + 120, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('General y detalle', m + 144, ly);
+  g.fillText('G Grieta · R Rotura · D Desgarro · O Otro · candado entre dos tubos', m + 300, ly);
   const x0 = Math.round((W - gw) / 2), y0 = top;
   g.fillStyle = '#EEF1F5'; g.fillRect(x0 - 10, y0 - 6, gw + 20, gh + 12);
   g.drawImage(await cargarImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgNivel(n, gw, gh))), x0, y0, gw, gh);
@@ -957,11 +998,11 @@ async function lamina(n) {
   let y = y0 + gh + 44;
   g.fillStyle = '#0E3A5F'; g.fillRect(m, y - lh / 2, W - 2 * m, lh);
   g.fillStyle = '#fff'; g.font = 'bold 15px sans-serif';
-  ['Código', 'Indicación', 'Nota', 'Fotos', 'Registró'].forEach((t, i) => g.fillText(t, cols[i] + 6, y));
+  ['Código', 'Indicación', 'Nota', 'Fotos general', 'Fotos detalle', 'Registró'].forEach((t, i) => g.fillText(t, cols[i] + 6, y));
   g.font = '15px sans-serif';
   xs.forEach((x, r) => {
     y += lh; g.fillStyle = r % 2 ? '#f5f7fa' : '#fff'; g.fillRect(m, y - lh / 2, W - 2 * m, lh); g.fillStyle = '#13202c';
-    [codigo(x), tipoTxt(x), x.nota, String(x.nf || 0), x.u].forEach((t, i) => g.fillText(cortar(g, t, wcol(i)), cols[i] + 6, y));
+    [codigo(x), tipoTxt(x), x.nota, `G ${nG(x)} · D ${nD(x)}`, x.u].forEach((t, i) => g.fillText(cortar(g, t, wcol(i)), cols[i] + 6, y));
   });
   return cv;
 }
@@ -972,7 +1013,7 @@ function csv() {
   const cols = ['Nivel', 'Panel', 'Candado (tubos)', 'Código', 'Indicación', 'Nota', 'Fotos', 'Registró', 'Fecha registro', 'Último cambio', 'Fecha cambio'];
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = [...S.inds.values()].sort(ordenar).map(x =>
-    [x.n, `P${pad(x.p)}`, `T${pad(x.c)}-${pad(x.c + 1)}`, codigo(x), tipoTxt(x), x.nota, x.nf || 0, x.u, fecha(x.t), x.uu || '', fecha(x.ut)]);
+    [x.n, `P${pad(x.p)}`, `T${pad(x.c)}-${pad(x.c + 1)}`, codigo(x), tipoTxt(x), x.nota, nG(x), nD(x), x.u, fecha(x.t), x.uu || '', fecha(x.ut)]);
   return '﻿' + [cols, ...rows].map(r => r.map(q).join(';')).join('\r\n');
 }
 
@@ -1009,9 +1050,10 @@ async function exportarZip() {
     for (const x of xs) {
       i++; if ($('#eZip span')) $('#eZip span').textContent = `Fotos ${i} de ${xs.length}…`;
       const s = await getDocs(query(fotosCol(x.id), orderBy('t')));
-      s.docs.forEach((d, j) => {
-        const dir = `${base}/Nivel ${x.n}/P${pad(x.p)} T${pad(x.c)}-${pad(x.c + 1)}`;
-        z.file(`${dir}/${codigo(x)}_${limpio(tipoTxt(x))}_${j + 1}.jpg`, d.data().d.split(',')[1], { base64: true }); nf++;
+      const cuenta = { general: 0, detalle: 0 };
+      s.docs.forEach(d => {
+        const f = d.data(), tp = tipoFoto(f), dir = `${base}/Nivel ${x.n}/P${pad(x.p)} T${pad(x.c)}-${pad(x.c + 1)}`;
+        z.file(`${dir}/${codigo(x)}_${limpio(tipoTxt(x))}_${tp}_${++cuenta[tp]}.jpg`, f.d.split(',')[1], { base64: true }); nf++;
       });
     }
     const blob = await z.generateAsync({ type: 'blob' });
