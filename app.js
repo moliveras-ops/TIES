@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '1.3.1';
+const VERSION = '1.4';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -197,12 +197,11 @@ const porNombre = (a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es
 const busca = c => id => S.cat[c].find(x => x.id === id);
 const cli = busca('clientes'), pla = busca('plantas'), cal = busca('calderas'), sobre = busca('sobrecalentadores'), proy = busca('proyectos');
 const shDe = kid => S.cat.sobrecalentadores.filter(x => x.kid === kid).sort((a, b) => (a.c || 0) - (b.c || 0));
-const proyectosDe = kid => S.cat.proyectos.filter(x => x.kid === kid).sort((a, b) => (b.anio || 0) - (a.anio || 0) || b.c - a.c);
-const levsDeProy = id => S.levs.filter(l => l.prj === id);
 const antiguosDe = kid => S.levs.filter(l => l.kid === kid && !l.prj);
 // "Arauco · Valdivia · Caldera Recuperadora"
 const rutaTxt = l => [cli(l.cid)?.nombre, pla(l.pid)?.nombre, cal(l.kid)?.nombre].filter(Boolean).join(' · ');
-const nombreCompleto = l => [rutaTxt(l), l.nombre, sobre(l.sid)?.nombre].filter(Boolean).join(' · ');
+// Cliente · Planta · Evento · Caldera · Sobrecalentador
+const nombreCompleto = l => [cli(l.cid)?.nombre, pla(l.pid)?.nombre, l.nombre, cal(l.kid)?.nombre, sobre(l.sid)?.nombre].filter(Boolean).join(' · ');
 const nombresNiv = (l = S.lev) => sobre(l?.sid)?.nn || l?.nn || [];
 const nivelNom = (i, l) => nombresNiv(l)[i - 1] || `Nivel ${i}`;
 const chipNom = i => nombresNiv()[i - 1] || `N${i}`;
@@ -242,11 +241,12 @@ function inicio() {
 function atras() {
   if (S.lev) return cerrarLev();
   const r = S.ruta;
-  if (r.prj) r.prj = null; else if (r.kid) r.kid = null; else if (r.pid) r.pid = null; else r.cid = null;
+  // Planta → Evento → Caldera (trabajo)   o   Planta → Caldera (configuración de sobrecalentadores)
+  if (r.prj && r.kid) r.kid = null; else if (r.prj) r.prj = null; else if (r.kid) r.kid = null; else if (r.pid) r.pid = null; else r.cid = null;
   ir(r);
 }
 function ir(r) {
-  S.ruta = { cid: r.cid || null, pid: r.pid || null, kid: r.kid || null, prj: r.prj || null };
+  S.ruta = { cid: r.cid || null, pid: r.pid || null, prj: r.prj || null, kid: r.kid || null };
   ls.set('ties_ruta', S.ruta); if (S.ruta.cid) guardia();
   window.scrollTo(0, 0); pantalla();
 }
@@ -255,12 +255,13 @@ function pantalla() {
   if (S.lev) return;
   const r = S.ruta;
   // si algo se borró, subir al nivel que todavía existe
-  if (r.prj && !proy(r.prj) && S.cat.proyectos.length) r.prj = null;
-  if (r.kid && !cal(r.kid) && S.cat.calderas.length) { r.kid = null; r.prj = null; }
+  if (r.prj && !proy(r.prj) && S.cat.proyectos.length) { r.prj = null; r.kid = null; }
+  if (r.kid && !cal(r.kid) && S.cat.calderas.length) r.kid = null;
   if (r.pid && !pla(r.pid) && S.cat.plantas.length) { r.pid = null; r.kid = null; r.prj = null; }
   if (r.cid && !cli(r.cid) && S.cat.clientes.length) S.ruta = {};
   const q = S.ruta;
-  if (q.prj) vistaProyecto(); else if (q.kid) vistaCaldera(); else if (q.pid) vistaPlanta(); else if (q.cid) vistaCliente(); else home();
+  if (q.prj && q.kid) vistaEventoCaldera(); else if (q.prj) vistaEvento(); else if (q.kid) vistaCaldera();
+  else if (q.pid) vistaPlanta(); else if (q.cid) vistaCliente(); else home();
 }
 
 const cabSimple = (t, sub) => `<div class="cabniv"><div class="ctit"><b>${t}</b>${sub ? `<span>${sub}</span>` : ''}</div></div>`;
@@ -272,19 +273,19 @@ const acciones = (borrar = 'Eliminar') => `<div class="acciones"><button class="
 function home() {
   S.lev = null; titulo('TIES');
   const sin = S.levs.filter(l => !l.kid || !cal(l.kid));
-  const rec = [...S.cat.proyectos].filter(p => cal(p.kid)).sort((a, b) => b.c - a.c).slice(0, 4);
-  app.innerHTML = cabSimple(`Hola, ${esc(S.nombre)}`, 'Elige cliente, planta y caldera') +
+  const rec = [...S.cat.proyectos].filter(p => pla(p.pid)).sort((a, b) => b.c - a.c).slice(0, 4);
+  app.innerHTML = cabSimple(`Hola, ${esc(S.nombre)}`, 'Cliente → planta → evento → caldera → sobrecalentador') +
     `<h3>Clientes</h3>` +
     (S.cat.clientes.map(c => {
       const pl = S.cat.plantas.filter(p => p.cid === c.id).length, ca = S.cat.calderas.filter(k => k.cid === c.id).length;
       return itemNav(`data-cid="${c.id}"`, 'cliente', esc(c.nombre), `${plural(pl, 'planta', 'plantas')} · ${plural(ca, 'caldera', 'calderas')}`);
     }).join('') || '<p class="vacio">Cargando clientes…</p>') +
     `<button class="btn" id="bCli">${ic('agregar')}Nuevo cliente</button>` +
-    (rec.length ? `<h3>Proyectos recientes</h3>` + rec.map(p => itemNav(`data-prj="${p.id}"`, 'proyecto', esc(p.nombre), esc(rutaTxt(p)))).join('') : '') +
+    (rec.length ? `<h3>Eventos recientes</h3>` + rec.map(p => itemNav(`data-prj="${p.id}"`, 'proyecto', esc(p.nombre), esc([cli(p.cid)?.nombre, pla(p.pid)?.nombre].filter(Boolean).join(' · ')))).join('') : '') +
     (sin.length ? `<h3>Sin caldera asignada</h3><p class="nota">Asígnales una caldera en Ajustes, dentro del levantamiento.</p>` +
       sin.map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), dimTxt(l))).join('') : '');
   app.querySelectorAll('[data-cid]').forEach(b => b.onclick = () => ir({ cid: b.dataset.cid }));
-  app.querySelectorAll('[data-prj]').forEach(b => b.onclick = () => { const p = proy(b.dataset.prj); ir({ cid: p.cid, pid: p.pid, kid: p.kid, prj: p.id }); });
+  app.querySelectorAll('[data-prj]').forEach(b => b.onclick = () => { const p = proy(b.dataset.prj); ir({ cid: p.cid, pid: p.pid, prj: p.id }); });
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
   $('#bCli').onclick = () => formNombre('Nuevo cliente', '', 'Ej. Celulosa Arauco', nombre => ir({ cid: crearCat('clientes', { nombre }) }));
 }
@@ -308,86 +309,105 @@ function vistaCliente() {
   };
 }
 
+const eventosDe = pid => S.cat.proyectos.filter(x => x.pid === pid).sort((a, b) => (b.anio || 0) - (a.anio || 0) || b.c - a.c);
+const levsDe = (prj, kid) => S.levs.filter(l => l.prj === prj && (!kid || l.kid === kid));
+
 function vistaPlanta() {
   const p = pla(S.ruta.pid), c = cli(S.ruta.cid); if (!p) return ir({ cid: S.ruta.cid });
   titulo(p.nombre);
-  const ks = S.cat.calderas.filter(k => k.pid === p.id);
+  const ks = S.cat.calderas.filter(k => k.pid === p.id), ev = eventosDe(p.id);
   app.innerHTML = cabSimple(esc(p.nombre), `${esc(c?.nombre || '')} · planta`) +
-    `<h3>Calderas</h3>` +
-    (ks.map(k => itemNav(`data-kid="${k.id}"`, 'caldera', esc(k.nombre),
-      `${plural(shDe(k.id).length, 'sobrecalentador', 'sobrecalentadores')} · ${plural(proyectosDe(k.id).length, 'proyecto', 'proyectos')}`)).join('')
+    `<h3>Eventos</h3>` +
+    (ev.map(e => itemNav(`data-prj="${e.id}"`, 'proyecto', esc(e.nombre), `${e.anio} · ${plural(new Set(levsDe(e.id).map(l => l.kid)).size, 'caldera iniciada', 'calderas iniciadas')}`)).join('')
+      || '<p class="vacio">Aún no hay eventos. Crea el de esta parada (ej. PGP 2026).</p>') +
+    `<button class="btn pri" id="bEve">${ic('agregar')}Nuevo evento</button>
+    <h3>Calderas y sobrecalentadores</h3><p class="nota">Se configuran una vez y sirven para todos los eventos de la planta.</p>` +
+    (ks.map(k => itemNav(`data-kid="${k.id}"`, 'caldera', esc(k.nombre), plural(shDe(k.id).length, 'sobrecalentador', 'sobrecalentadores'))).join('')
       || '<p class="vacio">Aún no hay calderas. Agrega la primera.</p>') +
-    `<button class="btn pri" id="bCal">${ic('agregar')}Nueva caldera</button>` + acciones();
+    `<button class="btn" id="bCal">${ic('agregar')}Nueva caldera</button>` + acciones();
+  app.querySelectorAll('[data-prj]').forEach(b => b.onclick = () => ir({ cid: p.cid, pid: p.id, prj: b.dataset.prj }));
   app.querySelectorAll('[data-kid]').forEach(b => b.onclick = () => ir({ cid: p.cid, pid: p.id, kid: b.dataset.kid }));
+  $('#bEve').onclick = () => formEvento(null, p);
   $('#bCal').onclick = () => formNombre('Nueva caldera · ' + p.nombre, '', 'Ej. Caldera Recuperadora 1',
     nombre => ir({ cid: p.cid, pid: p.id, kid: crearCat('calderas', { nombre, cid: p.cid, pid: p.id }) }));
   $('#bRen').onclick = () => formNombre('Renombrar planta', p.nombre, '', nombre => updateDoc(catRef('plantas', p.id), { nombre }).catch(errEsc));
   $('#bDel').onclick = () => {
-    if (ks.length) return toast('Primero elimina sus calderas');
+    if (ks.length || ev.length) return toast('Primero elimina sus eventos y calderas');
     if (!confirm(`¿Eliminar la planta ${p.nombre}?`)) return;
     writeBatch(db).delete(catRef('plantas', p.id)).commit().catch(errEsc); ir({ cid: p.cid });
   };
 }
 
+// configuración de la caldera: sus sobrecalentadores
 function vistaCaldera() {
   const k = cal(S.ruta.kid); if (!k) return ir({ cid: S.ruta.cid, pid: S.ruta.pid });
   titulo(k.nombre);
-  const shs = shDe(k.id), pr = proyectosDe(k.id), ant = antiguosDe(k.id);
-  app.innerHTML = cabSimple(esc(k.nombre), `${esc(cli(k.cid)?.nombre || '')} · ${esc(pla(k.pid)?.nombre || '')}`) +
+  const shs = shDe(k.id), ant = antiguosDe(k.id), usada = S.levs.some(l => l.kid === k.id);
+  app.innerHTML = cabSimple(esc(k.nombre), `${esc(cli(k.cid)?.nombre || '')} · ${esc(pla(k.pid)?.nombre || '')} · configuración`) +
     `<h3>Sobrecalentadores</h3>` +
-    (shs.map(x => itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), dimTxt(x), true)).join('')
-      || '<p class="vacio">Agrega los sobrecalentadores de esta caldera (paneles, tubos y niveles de candados).</p>') +
-    `<button class="btn" id="bSh">${ic('agregar')}Agregar sobrecalentador</button>
-    <h3>Proyectos</h3>` +
-    (pr.map(p => itemNav(`data-prj="${p.id}"`, 'proyecto', esc(p.nombre), `${p.anio} · ${plural(levsDeProy(p.id).length, 'sobrecalentador iniciado', 'sobrecalentadores iniciados')}`)).join('')
-      || '<p class="vacio">Aún no hay proyectos. Crea el de este año.</p>') +
-    `<button class="btn pri" id="bPro">${ic('agregar')}Nuevo proyecto</button>` +
+    (shs.map(x => itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), dimTxt(x) + ((x.nn || []).length ? ' · ' + esc(x.nn.join(', ')) : ''), true)).join('')
+      || '<p class="vacio">Agrega los sobrecalentadores de esta caldera: paneles, tubos y niveles de candados.</p>') +
+    `<button class="btn pri" id="bSh">${ic('agregar')}Agregar sobrecalentador</button>` +
     (ant.length ? `<h3>Levantamientos anteriores</h3>` + ant.map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), dimTxt(l))).join('') : '') +
     acciones();
   app.querySelectorAll('[data-sid]').forEach(b => b.onclick = () => formSobre(sobre(b.dataset.sid), k));
-  app.querySelectorAll('[data-prj]').forEach(b => b.onclick = () => ir({ cid: k.cid, pid: k.pid, kid: k.id, prj: b.dataset.prj }));
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
   $('#bSh').onclick = () => formSobre(null, k);
-  $('#bPro').onclick = () => formProyecto(null, k);
   $('#bRen').onclick = () => formNombre('Renombrar caldera', k.nombre, '', nombre => updateDoc(catRef('calderas', k.id), { nombre }).catch(errEsc));
   $('#bDel').onclick = () => {
-    if (shs.length || pr.length || ant.length) return toast('Primero elimina sus sobrecalentadores y proyectos');
+    if (shs.length || usada) return toast('Primero elimina sus sobrecalentadores y sus levantamientos');
     if (!confirm(`¿Eliminar la caldera ${k.nombre}?`)) return;
     writeBatch(db).delete(catRef('calderas', k.id)).commit().catch(errEsc); ir({ cid: k.cid, pid: k.pid });
   };
 }
 
-function vistaProyecto() {
-  const p = proy(S.ruta.prj); if (!p) return ir({ ...S.ruta, prj: null });
-  const k = cal(p.kid), shs = k ? shDe(k.id) : [], levs = levsDeProy(p.id);
-  titulo(`${k?.nombre || ''} · ${p.nombre}`);
-  const huerfanos = levs.filter(l => !shs.some(x => x.id === l.sid));
-  app.innerHTML = cabSimple(esc(p.nombre), `${esc(rutaTxt(p))} · ${p.anio}`) +
+// evento de la planta: sus calderas
+function vistaEvento() {
+  const e = proy(S.ruta.prj); if (!e) return ir({ cid: S.ruta.cid, pid: S.ruta.pid });
+  titulo(e.nombre);
+  const ks = S.cat.calderas.filter(k => k.pid === e.pid), levs = levsDe(e.id);
+  app.innerHTML = cabSimple(esc(e.nombre), `${esc(cli(e.cid)?.nombre || '')} · ${esc(pla(e.pid)?.nombre || '')} · ${e.anio}`) +
+    `<h3>Calderas</h3>` +
+    (ks.map(k => {
+      const n = shDe(k.id).length, ini = levs.filter(l => l.kid === k.id).length;
+      return itemNav(`data-kid="${k.id}"`, 'caldera', esc(k.nombre), n ? `${ini} de ${plural(n, 'sobrecalentador', 'sobrecalentadores')} iniciados` : 'Sin sobrecalentadores configurados');
+    }).join('') || '<p class="vacio">La planta no tiene calderas. Vuelve atrás y agrégalas en "Calderas y sobrecalentadores".</p>') +
+    `<div class="acciones"><button class="btn" id="bRen">${ic('editar')}Nombre y año</button><button class="btn peligro" id="bDel">${ic('borrar')}Eliminar</button></div>`;
+  app.querySelectorAll('[data-kid]').forEach(b => b.onclick = () => ir({ cid: e.cid, pid: e.pid, prj: e.id, kid: b.dataset.kid }));
+  $('#bRen').onclick = () => formEvento(e, pla(e.pid));
+  $('#bDel').onclick = () => {
+    if (levs.length && prompt(`Se borrará el evento "${e.nombre}" con todos sus candados y fotos (${plural(levs.length, 'sobrecalentador', 'sobrecalentadores')}), para todos los usuarios.\nEscribe BORRAR para confirmar.`) !== 'BORRAR') return;
+    if (!levs.length && !confirm(`¿Eliminar el evento ${e.nombre}?`)) return;
+    levs.forEach(l => borrarLev(l.id));
+    writeBatch(db).delete(catRef('proyectos', e.id)).commit().catch(errEsc);
+    ir({ cid: e.cid, pid: e.pid });
+  };
+}
+
+// caldera dentro del evento: sus sobrecalentadores → candados
+function vistaEventoCaldera() {
+  const e = proy(S.ruta.prj), k = cal(S.ruta.kid); if (!e || !k) return ir({ cid: S.ruta.cid, pid: S.ruta.pid, prj: S.ruta.prj });
+  titulo(`${k.nombre} · ${e.nombre}`);
+  const shs = shDe(k.id), levs = levsDe(e.id, k.id), huerfanos = levs.filter(l => !shs.some(x => x.id === l.sid));
+  app.innerHTML = cabSimple(esc(k.nombre), `${esc(e.nombre)} · ${esc(pla(e.pid)?.nombre || '')}`) +
     `<h3>Sobrecalentadores</h3>` +
     (shs.map(x => {
       const l = levs.find(l => l.sid === x.id);
       return itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), l ? `Iniciado por ${esc(l.u)} · ${fecha(l.c)}` : `${dimTxt(x)} · sin iniciar`);
-    }).join('') || '<p class="vacio">La caldera no tiene sobrecalentadores. Vuelve atrás y agrégalos en la caldera.</p>') +
+    }).join('') || '<p class="vacio">Esta caldera no tiene sobrecalentadores.</p>') +
     huerfanos.map(l => itemNav(`data-id="${l.id}"`, 'grilla', esc(l.nombre), 'Sobrecalentador eliminado de la caldera')).join('') +
-    `<div class="acciones"><button class="btn" id="bRen">${ic('editar')}Nombre y año</button><button class="btn peligro" id="bDel">${ic('borrar')}Eliminar</button></div>`;
-  app.querySelectorAll('[data-sid]').forEach(b => b.onclick = () => abrirSobre(p, sobre(b.dataset.sid)));
+    `<button class="btn" id="bCfg">${ic('ajustes')}Configurar sobrecalentadores</button>`;
+  app.querySelectorAll('[data-sid]').forEach(b => b.onclick = () => abrirSobre(e, k, sobre(b.dataset.sid)));
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
-  $('#bRen').onclick = () => formProyecto(p, k);
-  $('#bDel').onclick = () => {
-    if (levs.length && prompt(`Se borrará el proyecto "${p.nombre}" con todos sus candados y fotos (${plural(levs.length, 'sobrecalentador', 'sobrecalentadores')}), para todos los usuarios.\nEscribe BORRAR para confirmar.`) !== 'BORRAR') return;
-    if (!levs.length && !confirm(`¿Eliminar el proyecto ${p.nombre}?`)) return;
-    levs.forEach(l => borrarLev(l.id));
-    writeBatch(db).delete(catRef('proyectos', p.id)).commit().catch(errEsc);
-    ir({ cid: p.cid, pid: p.pid, kid: p.kid });
-  };
+  $('#bCfg').onclick = () => ir({ cid: k.cid, pid: k.pid, kid: k.id });
 }
 
-// abre la grilla del sobrecalentador en el proyecto (la crea la primera vez)
-function abrirSobre(p, x) {
-  const l = levsDeProy(p.id).find(l => l.sid === x.id);
+// abre la grilla de candados del sobrecalentador en el evento (la crea la primera vez)
+function abrirSobre(e, k, x) {
+  const l = levsDe(e.id, k.id).find(l => l.sid === x.id);
   if (l) return abrirLev(l.id);
   const ref = doc(collection(db, 'levantamientos'));
-  const d = { nombre: p.nombre, anio: p.anio, cid: p.cid, pid: p.pid, kid: p.kid, prj: p.id, sid: x.id, p: x.p, n: x.n, t: x.t, nn: x.nn || [], c: Date.now(), u: S.nombre, uid: S.uid };
+  const d = { nombre: e.nombre, anio: e.anio, cid: k.cid, pid: k.pid, kid: k.id, prj: e.id, sid: x.id, p: x.p, n: x.n, t: x.t, nn: x.nn || [], c: Date.now(), u: S.nombre, uid: S.uid };
   setDoc(ref, d).catch(errEsc);
   S.levs = [{ id: ref.id, ...d }, ...S.levs];
   abrirLev(ref.id);
@@ -431,26 +451,26 @@ function formSobre(x, k) {
   };
 }
 
-function formProyecto(p, k) {
-  const anio = p?.anio || new Date().getFullYear();
-  hoja(`<h3>${p ? 'Proyecto' : 'Nuevo proyecto · ' + esc(k?.nombre || '')}</h3>
+function formEvento(e, p) {
+  const anio = e?.anio || new Date().getFullYear();
+  hoja(`<h3>${e ? 'Evento' : 'Nuevo evento · ' + esc(p?.nombre || '')}</h3>
     <div class="fila2"><label>Año<input id="fAn" type="number" inputmode="numeric" value="${anio}"></label>
-    <label>Nombre<input id="fNom" value="${esc(p?.nombre || 'PGP ' + anio)}"></label></div>
-    <p class="nota">Dentro del proyecto aparecen los sobrecalentadores de la caldera, cada uno con su grilla de candados.</p>
-    <div class="acciones"><button class="btn" data-x>Cancelar</button><button class="btn pri" id="fOk">${p ? 'Guardar' : 'Crear'}</button></div>`);
+    <label>Nombre<input id="fNom" value="${esc(e?.nombre || 'PGP ' + anio)}"></label></div>
+    <p class="nota">Dentro del evento aparecen las calderas de la planta y, en cada una, sus sobrecalentadores con la grilla de candados.</p>
+    <div class="acciones"><button class="btn" data-x>Cancelar</button><button class="btn pri" id="fOk">${e ? 'Guardar' : 'Crear'}</button></div>`);
   const an = $('#fAn'), nom = $('#fNom');
   an.oninput = () => { if (/^PGP \d{0,4}$/.test(nom.value)) nom.value = 'PGP ' + an.value; };
   $('#fOk').onclick = () => {
     const a = num('#fAn', 1990, 2100), nombre = nom.value.trim();
     if (!a || !nombre) return toast('Revisa el año y el nombre');
     cerrarModal();
-    if (p) {
-      const b = writeBatch(db).update(catRef('proyectos', p.id), { nombre, anio: a });
-      levsDeProy(p.id).forEach(l => b.update(levRef(l.id), { nombre, anio: a }));
+    if (e) {
+      const b = writeBatch(db).update(catRef('proyectos', e.id), { nombre, anio: a });
+      levsDe(e.id).forEach(l => b.update(levRef(l.id), { nombre, anio: a }));
       return b.commit().catch(errEsc);
     }
-    if (proyectosDe(k.id).some(x => x.anio === a && x.nombre === nombre) && !confirm(`Ya existe "${nombre}" en ${a}. ¿Crear otro igual?`)) return;
-    ir({ cid: k.cid, pid: k.pid, kid: k.id, prj: crearCat('proyectos', { nombre, anio: a, cid: k.cid, pid: k.pid, kid: k.id }) });
+    if (eventosDe(p.id).some(x => x.anio === a && x.nombre === nombre) && !confirm(`Ya existe "${nombre}" en ${a}. ¿Crear otro igual?`)) return;
+    ir({ cid: p.cid, pid: p.id, prj: crearCat('proyectos', { nombre, anio: a, cid: p.cid, pid: p.id }) });
   };
 }
 
@@ -466,7 +486,7 @@ function abrirLev(id) {
   S.lev = l; S.levId = id; ls.set('ties_lev', id);
   S.nivel = Math.min(ls.get('ties_nivel_' + id, 1), l.n);
   S.inds = new Map(); S.primera = true; S.vista = 'grilla'; S.filtroN = 0;
-  if (l.kid) { S.ruta = { cid: l.cid, pid: l.pid, kid: l.kid, prj: l.prj || null }; ls.set('ties_ruta', S.ruta); }
+  if (l.kid) { S.ruta = { cid: l.cid, pid: l.pid, prj: l.prj || null, kid: l.kid }; ls.set('ties_ruta', S.ruta); }
   tituloLev();
   S.unsubInds?.();
   S.unsubInds = onSnapshot(indCol(), { includeMetadataChanges: true }, snap => {
