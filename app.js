@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '1.8';
+const VERSION = '1.9';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -504,7 +504,7 @@ function abrirLev(id) {
   const l = S.levs.find(x => x.id === id); if (!l) return;
   guardia();
   S.lev = l; S.levId = id; ls.set('ties_lev', id);
-  S.nivel = Math.min(ls.get('ties_nivel_' + id, 1), l.n);
+  S.nivel = Math.min(S.nivelPend || ls.get('ties_nivel_' + id, 1), l.n); S.nivelPend = null; ls.set('ties_nivel_' + id, S.nivel);
   S.inds = new Map(); S.primera = true; S.vista = 'grilla'; S.filtroN = 0;
   if (l.kid) { S.ruta = { cid: l.cid, pid: l.pid, prj: l.prj || null, kid: l.kid }; ls.set('ties_ruta', S.ruta); }
   tituloLev();
@@ -655,19 +655,173 @@ function tocarCroquis(e, el, kid, prj) {
   if (S.lev) { S.unsubInds?.(); S.unsubInds = null; S.lev = null; }
   abrirSobre(ev, cal(kid), x);
 }
+// ---------- croquis referencial con niveles detectados ----------
+// cqmap = { cols: [{ sid, x1, x2, ys: [y de cada nivel, de arriba (N1) hacia abajo] }] } con coordenadas 0–1 de la imagen
+async function detectarNiveles(src, kid) {
+  const im = await cargarImg(src), e = Math.min(1, 900 / Math.max(im.naturalWidth, im.naturalHeight));
+  const W = Math.round(im.naturalWidth * e), H = Math.round(im.naturalHeight * e);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d'); g.drawImage(im, 0, 0, W, H);
+  const px = g.getImageData(0, 0, W, H).data;
+  // líneas de nivel: azul marino sobre tubos grises
+  const azul = i => { const r = px[i], gg = px[i + 1], b = px[i + 2]; return b - r > 35 && b - gg > 15 && b < 225; };
+  const lineas = [], min = Math.max(6, W * 0.03);
+  for (let y = 0; y < H; y++) {
+    let x = 0;
+    while (x < W) {
+      if (azul((y * W + x) * 4)) {
+        const x0 = x; while (x < W && azul((y * W + x) * 4)) x++;
+        if (x - x0 >= min) {
+          const L = lineas.find(L => y - L.y2 <= 2 && Math.min(x, L.x2) - Math.max(x0, L.x1) > 0.5 * Math.min(x - x0, L.x2 - L.x1));
+          if (L) { L.y2 = y; L.x1 = Math.min(L.x1, x0); L.x2 = Math.max(L.x2, x); } else lineas.push({ y1: y, y2: y, x1: x0, x2: x });
+        }
+      }
+      x++;
+    }
+  }
+  if (!lineas.length) return { cols: [] };
+  const ancho = L => L.x2 - L.x1, maxW = Math.max(...lineas.map(ancho));
+  // columnas (sobrecalentadores) a partir de las líneas largas, de izquierda a derecha
+  const largas = lineas.filter(L => ancho(L) >= 0.5 * maxW).sort((a, b) => (a.x1 + a.x2) - (b.x1 + b.x2));
+  const cols = [];
+  largas.forEach(L => {
+    const c = cols[cols.length - 1], cx = (L.x1 + L.x2) / 2;
+    if (c && cx - c.cx < 0.5 * maxW) { c.x1s.push(L.x1); c.x2s.push(L.x2); c.cx = (c.cx * c.n + cx) / ++c.n; }
+    else cols.push({ cx, n: 1, x1s: [L.x1], x2s: [L.x2], ys: [] });
+  });
+  const med = a => [...a].sort((p, q) => p - q)[Math.floor(a.length / 2)];
+  cols.forEach(c => { c.x1 = med(c.x1s); c.x2 = med(c.x2s); });
+  // cada línea al sobrecalentador con el que más se superpone (incluye tramos cortos del fondo escalonado)
+  lineas.forEach(L => {
+    let mejor = null, sup = 0;
+    cols.forEach(c => { const o = Math.min(L.x2, c.x2) - Math.max(L.x1, c.x1); if (o > sup) { sup = o; mejor = c; } });
+    if (!mejor || ancho(L) < 0.3 * (mejor.x2 - mejor.x1)) return;
+    const y = (L.y1 + L.y2) / 2;
+    if (!mejor.ys.some(v => Math.abs(v - y) < H * 0.012)) mejor.ys.push(y);
+  });
+  const shs = shDe(kid);
+  return { cols: cols.filter(c => c.ys.length).map((c, i) => ({ sid: shs[i]?.id || null, x1: c.x1 / W, x2: c.x2 / W, ys: c.ys.sort((a, b) => a - b).map(y => y / H) })) };
+}
+
+// imagen del croquis con las marcas dibujadas encima (se muestra como <img>: el modo oscuro no la invierte)
+const cacheMapa = new Map();
+async function imagenMapa(k, { sid, nivel, cnt = {}, editar, mapa } = {}) {
+  const m = mapa || k.cqmap; if (!k.img || !m) return null;
+  const clave = JSON.stringify([k.id, k.img.length, m, sid, nivel, cnt, editar]);
+  if (cacheMapa.has(clave)) return cacheMapa.get(clave);
+  const im = await cargarImg(k.img), e = Math.min(1, 1400 / Math.max(im.naturalWidth, im.naturalHeight));
+  const W = Math.round(im.naturalWidth * e), H = Math.round(im.naturalHeight * e), u = Math.max(W, H) / 100;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.drawImage(im, 0, 0, W, H);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const chip = (x, y, t, fondo, letra, r = 1.9 * u) => {
+    g.font = `bold ${Math.round(r * 1.05)}px sans-serif`; const w = Math.max(2 * r, g.measureText(t).width + r);
+    g.fillStyle = fondo; g.beginPath(); g.roundRect(x - w / 2, y - r, w, 2 * r, r * 0.5); g.fill();
+    g.strokeStyle = '#0E3A5F'; g.lineWidth = u * 0.25; g.stroke(); g.fillStyle = letra; g.fillText(t, x, y + 0.5);
+  };
+  m.cols.forEach((c, ci) => {
+    const x1 = c.x1 * W, x2 = c.x2 * W, act = c.sid && c.sid === sid, x = sobre(c.sid);
+    if (editar) {
+      g.fillStyle = 'rgba(245,163,0,.95)'; chip((x1 + x2) / 2, 2.2 * u, x ? abrevSH(x.nombre).slice(0, 14) : `Columna ${ci + 1}`, '#F5A300', '#1b1300', 1.7 * u);
+    }
+    if (act) { g.strokeStyle = '#F5A300'; g.lineWidth = u * 0.6; g.strokeRect(x1 - u, 0.5 * u, x2 - x1 + 2 * u, H - u); }
+    c.ys.forEach((yy, j) => {
+      const y = yy * H, on = act && nivel === j + 1;
+      if (editar || act) {
+        g.strokeStyle = on ? '#F5A300' : editar ? '#F5A300' : 'rgba(14,58,95,.9)'; g.lineWidth = on ? u * 1.1 : u * 0.45;
+        g.beginPath(); g.moveTo(x1 - u * 0.6, y); g.lineTo(x2 + u * 0.6, y); g.stroke();
+        const nom = (x?.nn || [])[j] || `N${j + 1}`;
+        chip(x1 + 2.6 * u, y, nom.slice(0, 6), on ? '#F5A300' : '#fff', '#0E3A5F');
+        if (act && cnt[j + 1]) chip(x2 - 0.5 * u, y, String(cnt[j + 1]), '#D32F2F', '#fff', 1.6 * u);
+      }
+    });
+  });
+  const d = cv.toDataURL('image/jpeg', 0.85), res = { d, w: W, h: H };
+  if (cacheMapa.size > 30) cacheMapa.clear();
+  cacheMapa.set(clave, res); return res;
+}
+// punto tocado sobre la imagen → { col, nivel }
+function puntoMapa(e, el, m) {
+  const r = el.getBoundingClientRect(), u = (e.clientX - r.left) / r.width, v = (e.clientY - r.top) / r.height;
+  const col = m.cols.find(c => u >= c.x1 - 0.03 && u <= c.x2 + 0.03); if (!col) return null;
+  let nivel = 0, d = 1; col.ys.forEach((y, j) => { const dd = Math.abs(y - v); if (dd < d) { d = dd; nivel = j + 1; } });
+  return { col, nivel: d < 0.06 ? nivel : 0, u, v };
+}
+async function pintarMapa(sel, k, op) {
+  const el = $(sel); if (!el) return;
+  const res = await imagenMapa(k, op); if (!res || !$(sel)) return;
+  el.src = res.d;
+}
+function tocarMapa(e, el, kid, prj) {
+  const k = cal(kid), p = k?.cqmap && puntoMapa(e, el, k.cqmap); if (!p || !p.col.sid) return;
+  const x = sobre(p.col.sid); if (!x) return;
+  if (S.lev && x.id === S.lev.sid) {
+    if (!p.nivel) return; cerrarModal(); S.nivel = Math.min(p.nivel, S.lev.n); ls.set('ties_nivel_' + S.lev.id, S.nivel); return render();
+  }
+  const ev = proy(prj); if (!ev) return;
+  cerrarModal(); S.nivelPend = p.nivel || 1;
+  if (S.lev) { S.unsubInds?.(); S.unsubInds = null; S.lev = null; }
+  abrirSobre(ev, k, x);
+}
+
+// revisar / corregir los niveles detectados antes de guardarlos
+function editorNiveles(kid, mapa) {
+  const k = cal(kid), shs = shDe(kid); if (!k?.img) return;
+  let m = JSON.parse(JSON.stringify(mapa || k.cqmap || { cols: [] }));
+  hoja(`<div class="dcab"><h3>Niveles del croquis</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
+    <p class="nota">Revisa las líneas detectadas. Toca una línea para quitarla o toca dentro de un sobrecalentador para agregar un nivel. N1 es el de más arriba.</p>
+    <div id="edCols"></div>
+    <img class="cqfoto" id="edImg" alt="" style="cursor:crosshair">
+    <label class="sw"><input type="checkbox" id="edCant"> Ajustar la cantidad de niveles de cada sobrecalentador según el croquis</label>
+    <div class="acciones"><button class="btn" id="edDet">${ic('ajustes')}Volver a detectar</button><button class="btn pri" id="edOk">Guardar niveles</button></div>`);
+  const pintar = () => {
+    $('#edCols').innerHTML = m.cols.map((c, i) => {
+      const x = sobre(c.sid), dif = x && x.n !== c.ys.length;
+      return `<div class="edcol"><b>Columna ${i + 1}</b><select data-ci="${i}"><option value="">— sin asignar —</option>${shs.map(s => `<option value="${s.id}" ${s.id === c.sid ? 'selected' : ''}>${esc(s.nombre)}</option>`).join('')}</select>
+        <span class="${dif ? 'pend' : 'ok'}">${c.ys.length} detectados${x ? ` · ${x.n} en TIES` : ''}</span></div>`;
+    }).join('') || '<p class="aviso">No se encontraron líneas azules de nivel en la imagen.</p>';
+    $('#edCols').querySelectorAll('select').forEach(sl => sl.onchange = () => { m.cols[+sl.dataset.ci].sid = sl.value || null; pintar(); });
+    pintarMapa('#edImg', k, { editar: true, mapa: m });
+  };
+  $('#edImg').onclick = e => {
+    const p = puntoMapa(e, e.currentTarget, m); if (!p) return;
+    const j = p.col.ys.findIndex(y => Math.abs(y - p.v) < 0.015);
+    if (j >= 0) p.col.ys.splice(j, 1); else { p.col.ys.push(p.v); p.col.ys.sort((a, b) => a - b); }
+    pintar();
+  };
+  $('#edDet').onclick = async () => { m = await detectarNiveles(k.img, kid); pintar(); toast(`${m.cols.length} sobrecalentador(es) detectados`); };
+  $('#edOk').onclick = () => {
+    const ajustar = $('#edCant').checked, b = writeBatch(db);
+    b.update(catRef('calderas', kid), { cqmap: m });
+    if (ajustar) m.cols.forEach(c => { const x = sobre(c.sid); if (x && c.ys.length && c.ys.length !== x.n) b.update(catRef('sobrecalentadores', x.id), { n: c.ys.length, nn: (x.nn || []).slice(0, c.ys.length) }); });
+    b.commit().catch(errEsc);
+    k.cqmap = m; cerrarModal(); toast('Niveles del croquis guardados'); if (S.lev) render(); else pantalla();
+  };
+  pintar();
+}
+
 function bloqueCroquis(kid) {
   const k = cal(kid); if (!k || !shDe(kid).length) return '';
+  const mapa = k.img && k.cqmap?.cols?.length;
   return `<div class="cqtit">Croquis · ${esc(k.nombre)}</div>
-    ${k.img ? `<button class="cqimg" id="cqImg"><img src="${k.img}" alt=""><span>Croquis referencial · toca para ampliar</span></button>` : ''}
-    <button class="btn chico cqcarga" id="cqCarga">${ic('galeria')}${k.img ? 'Cambiar croquis referencial' : 'Cargar croquis referencial'}</button>
-    <div class="cqtit sub">Niveles · toca para navegar</div>
-    <div class="cq" id="cq">${comoImg(svgCroquis(kid, S.lev?.sid, S.nivel, S.lev ? conteoNiveles() : {}))}</div>`;
+    ${mapa ? `<div class="cq ref"><img class="dib" id="cqRef" alt=""><span>Toca un nivel para verlo u otro sobrecalentador para abrirlo</span></div>`
+      : k.img ? `<button class="cqimg" id="cqImg"><img src="${k.img}" alt=""><span>Croquis referencial · toca para ampliar</span></button>` : ''}
+    <div class="acciones cqacc">${k.img ? `<button class="btn chico" id="cqNiv">${ic('ajustes')}${mapa ? 'Editar niveles' : 'Detectar niveles'}</button>` : ''}
+    <button class="btn chico" id="cqCarga">${ic('galeria')}${k.img ? 'Cambiar croquis' : 'Cargar croquis referencial'}</button></div>
+    ${mapa ? '' : `<div class="cqtit sub">Niveles · toca para navegar</div>
+    <div class="cq" id="cq">${comoImg(svgCroquis(kid, S.lev?.sid, S.nivel, S.lev ? conteoNiveles() : {}))}</div>`}`;
 }
 function cargarCroquis(kid) { S.camK = null; S.croquisK = kid; const i = $('#gal'); i.value = ''; i.click(); }
 function conectarCroquis(kid, prj) {
   app.querySelectorAll('#cq').forEach(c => c.onclick = e => tocarCroquis(e, c, kid, prj));
   const b = $('#cqImg'); if (b) b.onclick = () => visor(cal(kid).img, { titulo: 'Croquis · ' + cal(kid).nombre, nombre: `Croquis ${limpio(cal(kid).nombre)}.jpg` });
   const c = $('#cqCarga'); if (c) c.onclick = () => cargarCroquis(kid);
+  const k = cal(kid), op = { sid: S.lev?.sid, nivel: S.nivel, cnt: S.lev ? conteoNiveles() : {} };
+  const ref = $('#cqRef'); if (ref && k) { pintarMapa('#cqRef', k, op); ref.onclick = e => tocarMapa(e, ref, kid, prj); }
+  const nv = $('#cqNiv'); if (nv) nv.onclick = async () => {
+    if (k.cqmap?.cols?.length) return editorNiveles(kid);
+    nv.disabled = true; editorNiveles(kid, await detectarNiveles(k.img, kid));
+  };
 }
 
 function vistaGrilla() {
@@ -705,13 +859,17 @@ function conectar() {
   if (S.lev.prj && S.lev.kid) {
     conectarCroquis(S.lev.kid, S.lev.prj);
     const bc = $('#bCq'); if (bc) bc.onclick = () => {
-      hoja(`<div class="dcab"><h3>Croquis · ${esc(cal(S.lev.kid)?.nombre || '')}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
-        ${cal(S.lev.kid)?.img ? `<img class="cqfoto" id="cqHImg" src="${cal(S.lev.kid).img}" alt="">` : ''}
-        <button class="btn chico" id="cqHCarga">${ic('galeria')}${cal(S.lev.kid)?.img ? 'Cambiar croquis referencial' : 'Cargar croquis referencial'}</button>
-        <p class="nota">Toca un nivel para verlo, u otro sobrecalentador para abrirlo.</p><div class="cq grande" id="cqH">${comoImg(svgCroquis(S.lev.kid, S.lev.sid, S.nivel, conteoNiveles()))}</div>`);
-      const c = $('#cqH'), kid = S.lev.kid; c.onclick = e => tocarCroquis(e, c, kid, S.lev.prj);
+      const kid = S.lev.kid, k = cal(kid), mapa = k?.img && k.cqmap?.cols?.length;
+      hoja(`<div class="dcab"><h3>Croquis · ${esc(k?.nombre || '')}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
+        <p class="nota">Toca un nivel para verlo, u otro sobrecalentador para abrirlo.</p>
+        ${mapa ? '<img class="cqfoto" id="cqHRef" alt="">' : `${k?.img ? `<img class="cqfoto" id="cqHImg" src="${k.img}" alt="">` : ''}<div class="cq grande" id="cqH">${comoImg(svgCroquis(kid, S.lev.sid, S.nivel, conteoNiveles()))}</div>`}
+        <div class="acciones">${k?.img ? `<button class="btn chico" id="cqHNiv">${ic('ajustes')}${mapa ? 'Editar niveles' : 'Detectar niveles'}</button>` : ''}<button class="btn chico" id="cqHCarga">${ic('galeria')}${k?.img ? 'Cambiar croquis' : 'Cargar croquis referencial'}</button></div>`);
+      const prj = S.lev.prj;
+      if (mapa) { pintarMapa('#cqHRef', k, { sid: S.lev.sid, nivel: S.nivel, cnt: conteoNiveles() }); $('#cqHRef').onclick = e => tocarMapa(e, e.currentTarget, kid, prj); }
+      else { const c = $('#cqH'); c.onclick = e => tocarCroquis(e, c, kid, prj); }
       $('#cqHCarga').onclick = () => { cerrarModal(); cargarCroquis(kid); };
-      const im = $('#cqHImg'); if (im) im.onclick = () => visor(cal(kid).img, { titulo: 'Croquis · ' + cal(kid).nombre, nombre: `Croquis ${limpio(cal(kid).nombre)}.jpg` });
+      if ($('#cqHNiv')) $('#cqHNiv').onclick = async () => editorNiveles(kid, mapa ? null : await detectarNiveles(k.img, kid));
+      const im = $('#cqHImg'); if (im) im.onclick = () => visor(k.img, { titulo: 'Croquis · ' + k.nombre, nombre: `Croquis ${limpio(k.nombre)}.jpg` });
     };
   }
   app.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { S.filtroN = +b.dataset.f; render(); });
@@ -794,8 +952,10 @@ $('#cam').onchange = $('#gal').onchange = async e => {
     try {
       const d = await comprimir(f, null);
       updateDoc(catRef('calderas', kid), { img: d }).catch(errEsc);
-      const k = cal(kid); if (k) k.img = d;
-      toast('Croquis guardado para toda la caldera'); if (S.lev) render(); else pantalla();
+      const k = cal(kid); if (k) { k.img = d; k.cqmap = null; }
+      updateDoc(catRef('calderas', kid), { cqmap: null }).catch(errEsc);
+      toast('Croquis guardado. Detectando niveles…'); if (S.lev) render(); else pantalla();
+      if (k) editorNiveles(kid, await detectarNiveles(d, kid));
     }
     catch (err) { toast('No se pudo procesar la imagen: ' + err.message, 5000); }
     return;
@@ -1088,6 +1248,19 @@ async function datosInforme(avance) {
     filas: xs.map(x => [codigo(x), chipNom(x.n), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || '']),
     niveles: [], fichas: [], pie: 'TIES · Informe de candados'
   };
+  // croquis de la caldera con el sobrecalentador marcado
+  const k = cal(l.kid);
+  if (k && (k.img || shDe(k.id).length)) {
+    avance('Croquis…');
+    let img = k.cqmap?.cols?.length ? await imagenMapa(k, { sid: l.sid, cnt }) : k.img ? await medir(k.img) : null;
+    if (!img) {
+      const sv = svgCroquis(k.id, l.sid, 0, cnt), vb = sv.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/), w = Math.round(+vb[1] * 4), h = Math.round(+vb[2] * 4);
+      const i2 = await cargarImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sv));
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.getContext('2d').drawImage(i2, 0, 0, w, h);
+      img = { d: cv.toDataURL('image/png'), w, h };
+    }
+    c.croquis = { titulo: `Croquis · ${sobre(l.sid)?.nombre || k.nombre}`, img };
+  }
   for (const n of range(l.n)) {
     const ys = xs.filter(x => x.n === n); if (!ys.length) continue;
     avance(`Grilla ${chipNom(n)}…`);
@@ -1096,7 +1269,7 @@ async function datosInforme(avance) {
     const cv = document.createElement('canvas'); cv.width = gw; cv.height = gh; cv.getContext('2d').drawImage(im, 0, 0, gw, gh);
     c.niveles.push({
       titulo: `${nivelNom(n)} · ${sobre(l.sid)?.nombre || 'Sobrecalentador'}`, img: { d: cv.toDataURL('image/png'), w: gw, h: gh },
-      items: ys.map(x => `P${pad(x.p)} · T${pad(x.c)}-${pad(x.c + 1)}  —  ${tipoTxt(x)}  (general ${nG(x)} · detalle ${nD(x)})${x.nota ? '  · ' + x.nota : ''}`)
+      filas: ys.map(x => [codigo(x), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || ''])
     });
   }
   let i = 0;

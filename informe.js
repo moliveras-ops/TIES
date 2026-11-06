@@ -1,10 +1,12 @@
 // TIES — informe de candados en PDF (jsPDF) y Word (.docx armado a mano con JSZip)
 // Recibe los datos ya preparados por app.js:
 // c = { titulo, subtitulo, resumen, conteo, filas: [[código, nivel, panel, candado, indicación, fotos, obs]],
-//       niveles: [{ titulo, img: {d, w, h}, items: [texto] }],
+//       croquis: { titulo, img: {d, w, h} } | null,
+//       niveles: [{ titulo, img: {d, w, h}, filas: [[código, panel, candado, indicación, fotos, obs]] }],
 //       fichas: [{ titulo, ubic, general: {d, w, h} | null, detalle: {d, w, h} | null, obs }], pie }
 
 const AZUL = [14, 58, 95], GRIS = [90, 107, 123], CELESTE = [214, 228, 240], SUAVE = [238, 241, 245];
+const COLS_NIV = [['Código', 36], ['Panel', 15], ['Candado', 20], ['Indicación', 32], ['Fotos', 22], ['Observaciones', 57]];
 const COLS = [['Código', 34], ['Nivel', 18], ['Panel', 13], ['Candado', 18], ['Indicación', 28], ['Fotos', 20], ['Observaciones', 51]];
 
 // ---------- PDF ----------
@@ -15,7 +17,8 @@ export async function informePDF(c) {
   let hoja = 1, y = 0;
   const color = (k, a) => pdf[k](a[0], a[1], a[2]);
   const cab = t => {
-    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); color('setTextColor', AZUL); pdf.text(t, M, 18);
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); while (pdf.getTextWidth(t) > ANCHO && pdf.getFontSize() > 10) pdf.setFontSize(pdf.getFontSize() - 0.5);
+    color('setTextColor', AZUL); pdf.text(t, M, 18);
     pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); color('setTextColor', GRIS); pdf.text(pdf.splitTextToSize(c.subtitulo, ANCHO)[0], M, 24);
     color('setDrawColor', AZUL); pdf.setLineWidth(0.6); pdf.line(M, 27, W - M, 27); y = 35;
   };
@@ -27,32 +30,36 @@ export async function informePDF(c) {
   cab(c.titulo);
   texto(c.resumen, 10.5); pdf.text(pdf.splitTextToSize(c.resumen, ANCHO), M, y); y += 7;
   texto(c.conteo, 10, true); const lc = pdf.splitTextToSize(c.conteo, ANCHO); pdf.text(lc, M, y); y += lc.length * 5 + 4;
-  const encabezado = () => {
-    color('setFillColor', CELESTE); pdf.rect(M, y - 4.5, ANCHO, 7, 'F'); texto('', 9, true);
-    let x = M + 1.5; COLS.forEach(([t, w]) => { pdf.text(t, x, y); x += w; }); y += 6;
-  };
-  if (c.filas.length) encabezado(); else { texto('', 10); pdf.text('Sin indicaciones registradas.', M, y); y += 6; }
-  c.filas.forEach(f => {
-    texto('', 9);
-    const celdas = f.map((v, i) => pdf.splitTextToSize(String(v ?? ''), COLS[i][1] - 3));
-    const alto = Math.max(...celdas.map(l => l.length)) * 4 + 2.5;
-    if (y + alto > FIN) { nueva(c.titulo + ' (cont.)'); encabezado(); texto('', 9); }
-    let x = M + 1.5; celdas.forEach((l, i) => { pdf.text(l, x, y); x += COLS[i][1]; });
-    color('setDrawColor', [213, 221, 230]); pdf.setLineWidth(0.2); pdf.line(M, y + alto - 3.5, W - M, y + alto - 3.5);
-    y += alto;
-  });
-
-  // una hoja por nivel con indicaciones: grilla + lista
-  for (const nv of c.niveles) {
-    nueva(nv.titulo);
-    const maxH = Math.min(185, FIN - y - 8 - Math.min(nv.items.length, 12) * 4.6), maxW = ANCHO * 0.75;
-    const e = Math.min(maxW / nv.img.w, maxH / nv.img.h), iw = nv.img.w * e, ih = nv.img.h * e;
-    pdf.addImage(nv.img.d, 'PNG', M + (ANCHO - iw) / 2, y, iw, ih, undefined, 'FAST'); y += ih + 7;
-    texto('Indicaciones', 10.5, true, AZUL); pdf.text('Indicaciones', M, y); y += 5.5;
-    nv.items.forEach(t => {
-      if (y > FIN) { nueva(nv.titulo + ' (cont.)'); }
-      texto(t, 9.5); const l = pdf.splitTextToSize(t, ANCHO); pdf.text(l, M, y); y += l.length * 4.4;
+  const tabla = (cols, filas, tit) => {
+    const encabezado = () => {
+      color('setFillColor', CELESTE); pdf.rect(M, y - 4.5, ANCHO, 7, 'F'); texto('', 9, true);
+      let x = M + 1.5; cols.forEach(([t, w]) => { pdf.text(t, x, y); x += w; }); y += 6;
+    };
+    if (!filas.length) { texto('', 10); pdf.text('Sin indicaciones registradas.', M, y); y += 6; return; }
+    encabezado();
+    filas.forEach(f => {
+      texto('', 9);
+      const celdas = f.map((v, i) => pdf.splitTextToSize(String(v ?? ''), cols[i][1] - 3));
+      const alto = Math.max(...celdas.map(l => l.length)) * 4 + 2.5;
+      if (y + alto > FIN) { nueva(tit + ' (cont.)'); encabezado(); texto('', 9); }
+      let x = M + 1.5; celdas.forEach((l, i) => { pdf.text(l, x, y); x += cols[i][1]; });
+      color('setDrawColor', [213, 221, 230]); pdf.setLineWidth(0.2); pdf.line(M, y + alto - 3.5, W - M, y + alto - 3.5);
+      y += alto;
     });
+  };
+  const hojaImagen = (im, fmt) => {
+    const e = Math.min(ANCHO / im.w, (FIN - y - 2) / im.h), iw = im.w * e, ih = im.h * e;
+    pdf.addImage(im.d, fmt, M + (ANCHO - iw) / 2, y, iw, ih, undefined, 'FAST'); y += ih + 4;
+  };
+  tabla(COLS, c.filas, c.titulo);
+
+  // croquis de la caldera en hoja completa
+  if (c.croquis) { nueva(c.croquis.titulo); hojaImagen(c.croquis.img, c.croquis.img.d.startsWith('data:image/png') ? 'PNG' : 'JPEG'); }
+
+  // por nivel: grilla en hoja completa y la tabla de sus indicaciones en la hoja siguiente
+  for (const nv of c.niveles) {
+    nueva(nv.titulo); hojaImagen(nv.img, 'PNG');
+    nueva('Indicaciones · ' + nv.titulo); tabla(COLS_NIV, nv.filas, 'Indicaciones · ' + nv.titulo);
   }
 
   // detalle: foto general + foto de detalle + observaciones
@@ -118,19 +125,17 @@ export async function informeWord(c) {
 
   let b = cab(c.titulo);
   b += par(run(c.resumen, { sz: 21 })) + par(run(c.conteo, { b: true, sz: 20 }), { despues: 160 });
-  if (c.filas.length) {
-    const celda = (t, w, enc) => `<w:tc><w:tcPr><w:tcW w:w="${twip(w)}" w:type="dxa"/>${enc ? `<w:shd w:val="clear" w:color="auto" w:fill="${hex(CELESTE)}"/>` : ''}</w:tcPr>${par(run(t, { b: enc, sz: 17 }), { despues: 0 })}</w:tc>`;
-    b += `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:insideH w:val="single" w:sz="4" w:color="D5DDE6"/><w:bottom w:val="single" w:sz="4" w:color="D5DDE6"/></w:tblBorders><w:tblCellMar><w:left w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/></w:tblCellMar></w:tblPr>
-<w:tblGrid>${COLS.map(([, w]) => `<w:gridCol w:w="${twip(w)}"/>`).join('')}</w:tblGrid>
-<w:tr><w:trPr><w:tblHeader/></w:trPr>${COLS.map(([t, w]) => celda(t, w, true)).join('')}</w:tr>
-${c.filas.map(f => `<w:tr>${f.map((v, i) => celda(v, COLS[i][1])).join('')}</w:tr>`).join('')}</w:tbl>`;
-  } else b += par(run('Sin indicaciones registradas.'));
+  const celda = (t, w, enc) => `<w:tc><w:tcPr><w:tcW w:w="${twip(w)}" w:type="dxa"/>${enc ? `<w:shd w:val="clear" w:color="auto" w:fill="${hex(CELESTE)}"/>` : ''}</w:tcPr>${par(run(t, { b: enc, sz: 17 }), { despues: 0 })}</w:tc>`;
+  const tabla = (cols, filas) => filas.length ? `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:insideH w:val="single" w:sz="4" w:color="D5DDE6"/><w:bottom w:val="single" w:sz="4" w:color="D5DDE6"/></w:tblBorders><w:tblCellMar><w:left w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/></w:tblCellMar></w:tblPr>
+<w:tblGrid>${cols.map(([, w]) => `<w:gridCol w:w="${twip(w)}"/>`).join('')}</w:tblGrid>
+<w:tr><w:trPr><w:tblHeader/></w:trPr>${cols.map(([t, w]) => celda(t, w, true)).join('')}</w:tr>
+${filas.map(f => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${f.map((v, i) => celda(v, cols[i][1])).join('')}</w:tr>`).join('')}</w:tbl>` : par(run('Sin indicaciones registradas.'));
+  b += tabla(COLS, c.filas);
 
+  if (c.croquis) b += salto + cab(c.croquis.titulo) + par(imagen(c.croquis.img, 182, 232), { al: 'center' });
   for (const nv of c.niveles) {
-    b += salto + cab(nv.titulo);
-    b += par(imagen(nv.img, 120, 175), { al: 'center' });
-    b += par(run('Indicaciones', { b: true, sz: 21, col: AZUL }), { antes: 120 });
-    nv.items.forEach(t => b += par(run(t, { sz: 19 }), { despues: 20 }));
+    b += salto + cab(nv.titulo) + par(imagen(nv.img, 182, 232), { al: 'center' });
+    b += salto + cab('Indicaciones · ' + nv.titulo) + tabla(COLS_NIV, nv.filas);
   }
 
   if (c.fichas.length) b += salto + cab('Detalle de indicaciones');
