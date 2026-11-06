@@ -1,5 +1,5 @@
 [hidden]{display:none!important}
-:root{--azul:#0E3A5F;--ambar:#F5A300;--fondo:#EEF1F5;--rosa:#F48FB1;--rojo:#D32F2F;--cw:40px;--rh:40px;--lw:50px}
+:root{color-scheme:light dark;--azul:#0E3A5F;--ambar:#F5A300;--fondo:#EEF1F5;--rosa:#F48FB1;--rojo:#D32F2F;--cw:40px;--rh:40px;--lw:50px}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--fondo);color:#13202c;font:16px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
 header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;background:var(--azul);color:#fff;padding:6px 8px;padding-top:max(6px,env(safe-area-inset-top));min-height:56px}
@@ -20,8 +20,8 @@ h3{color:var(--azul)}
 .ingreso{max-width:420px;margin:20px auto;text-align:center}
 .ingreso .logo{width:84px}.ingreso h2{margin:8px 0 0;color:var(--azul)}
 label{display:block;text-align:left;font-weight:600;font-size:14px;margin:12px 0 4px;color:#33475b}
-input,textarea{display:block;width:100%;margin-top:4px;font:inherit;font-size:17px;padding:12px;border:2px solid #c9d3de;border-radius:10px;background:#fff;color:inherit}
-input:focus,textarea:focus{outline:none;border-color:var(--azul)}
+input,textarea,select{display:block;width:100%;margin-top:4px;font:inherit;font-size:17px;padding:12px;border:2px solid #c9d3de;border-radius:10px;background:#fff;color:inherit}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--azul)}
 label.sw{display:flex;align-items:center;gap:12px;font-weight:500;font-size:16px;min-height:52px;margin:0}
 label.sw input{width:26px;height:26px;margin:0;flex:none}
 .err{color:var(--rojo);min-height:1em;font-weight:600}
@@ -68,14 +68,25 @@ label.sw input{width:26px;height:26px;margin:0;flex:none}
 .item small .ic{display:inline-block;vertical-align:-2px}
 .cabniv{margin:-12px -12px 10px;background:var(--azul);color:#fff}
 .ctit{padding:12px 16px 10px}.ctit b{display:block;font-size:21px}.ctit span{display:block;font-size:16px;font-weight:600;opacity:.92}
-.niveles{display:flex;gap:8px;overflow-x:auto;padding:10px 12px;background:#0b2033;scrollbar-width:none}
+.niveles{display:flex;gap:8px;overflow-x:auto;padding:10px 12px;background:#0b2033;scrollbar-width:none;margin:-10px -12px 12px}
+.niveles.fijo{position:sticky;top:var(--hh,56px);z-index:3;box-shadow:0 3px 6px rgba(0,0,0,.18)}
 .chip{flex:none;min-width:64px;min-height:50px;border-radius:12px;border:0;background:#1d3550;color:#fff;font:700 18px system-ui,sans-serif;padding:0 12px;display:flex;align-items:center;justify-content:center;gap:4px}
 .chip.on{background:var(--ambar);color:#1b1300}
 .chip i{font-style:normal;background:var(--rojo);color:#fff;border-radius:10px;padding:0 6px;font-size:12px;line-height:18px}
-.gwrap{overflow-x:auto;margin:0 -6px}
+.gwrap{overflow-x:auto;background:#fff;border-radius:14px;padding:6px 4px;box-shadow:0 1px 4px rgba(0,0,0,.14)}
 .gwrap svg{display:block;width:100%;height:auto;min-width:300px}
 .pwrap{overflow-x:auto;background:#fff;border-radius:12px;padding:6px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .pwrap svg{display:block;height:auto}
 nav.abajo{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;background:#0b2033;padding:8px;padding-bottom:max(8px,env(safe-area-inset-bottom));z-index:4}
 nav.abajo button{flex:1;min-height:70px;border:0;border-radius:14px;background:#1d3550;color:#fff;font:600 14px system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
 nav.abajo button:active{background:var(--ambar);color:#1b1300}
+.fila2{display:grid;grid-template-columns:1fr 2fr;gap:8px}
+.item.nav{display:flex;align-items:center;gap:12px;min-height:72px}
+.item.nav>div{flex:1;min-width:0}.item.nav>.ic{color:#9aa9b8}
+.item .inav{flex:none;width:46px;height:46px;border-radius:12px;background:var(--azul);color:var(--ambar);display:flex!important;align-items:center;justify-content:center}
+.ctit span br{display:block}
+h3{margin:16px 0 4px}
+/* Con el modo oscuro del teléfono, el navegador no invierte la app si ve que ella misma maneja el modo oscuro:
+   se declara, pero se mantienen los colores claros de BoilerImage (legibles al sol) */
+@media (prefers-color-scheme:dark){html,body{background:#EEF1F5;color:#13202c}input,textarea,select{background:#fff;color:#13202c}}
+.leyenda{gap:6px 14px;margin:10px 4px}.leyenda .ley{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}

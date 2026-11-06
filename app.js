@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '1.1';
+const VERSION = '1.2';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -31,6 +31,11 @@ const IC = {
   planilla: 'M3 3v18h18V3H3zm8 16H5v-6h6v6zm0-8H5V5h6v6zm8 8h-6v-6h6v6zm0-8h-6V5h6v6z',
   zip: 'M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5 6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z',
   instalar: 'M17 1.01 7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14zm-1-6h-3V8h-2v5H8l4 4 4-4z',
+  cliente: 'M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z',
+  planta: 'M22 22H2V10l7-3v2l5-2v3h3l1-8h3l1 8v12zM12 9.95l-5 2V10l-3 1.32V20h16v-8h-8V9.95zM11 18h2v-4h-2v4zm-4 0h2v-4H7v4zm10-4h-2v4h2v-4z',
+  caldera: 'M12 12.9l-2.13 2.09C9.31 15.55 9 16.28 9 17.06 9 18.68 10.35 20 12 20s3-1.32 3-2.94c0-.78-.31-1.52-.87-2.07L12 12.9zM16 6l-.44.55C14.38 8.02 12 7.19 12 5.3V2S4 6 4 13c0 2.92 1.56 5.47 3.89 6.86-.56-.79-.89-1.76-.89-2.8 0-1.32.52-2.56 1.47-3.5L12 10.1l3.53 3.47c.95.93 1.47 2.17 1.47 3.5 0 1.02-.31 1.96-.85 2.75 1.89-1.15 3.29-3.06 3.71-5.3.66-3.55-1.07-6.9-3.86-8.52z',
+  proyecto: 'M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2zm-7 5h5v5h-5z',
+  derecha: 'M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
   salir: 'M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z'
 };
 const ic = (n, s = 24) => `<svg class="ic" viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true"><path d="${IC[n]}"/></svg>`;
@@ -80,9 +85,12 @@ const fotosCol = k => collection(db, 'levantamientos', S.lev.id, 'indicaciones',
 const S = {
   uid: null, nombre: ls.get('ties_nombre', ''), levs: [], lev: null, levId: ls.get('ties_lev', null),
   nivel: 1, inds: new Map(), pend: 0, vista: 'grilla', filtroN: 0, primera: true,
-  detalle: null, fotos: [], notaSucia: false, camK: null, ingresando: false, instalar: null, panel: null
+  detalle: null, fotos: [], notaSucia: false, camK: null, ingresando: false, instalar: null, panel: null,
+  cat: { clientes: [], plantas: [], calderas: [] }, ruta: ls.get('ties_ruta', null) || {}
 };
 $('#atras').innerHTML = ic('atras', 28);
+const altoCab = () => document.documentElement.style.setProperty('--hh', $('header').offsetHeight + 'px');
+altoCab(); addEventListener('resize', altoCab);
 $('#menuBtn').innerHTML = ic('mas', 28);
 
 // ---------- navegación con el botón Atrás de Android ----------
@@ -90,7 +98,7 @@ function guardia() { if (!history.state?.ties) history.pushState({ ties: 1 }, ''
 addEventListener('popstate', () => {
   if (!$('#visor').hidden) cerrarVisor();
   else if (!$('#modal').hidden) cerrarModal();
-  else if (S.lev) cerrarLev();
+  else if (S.lev || S.ruta.cid) atras();
   else return;
   guardia();
 });
@@ -106,8 +114,8 @@ addEventListener('offline', () => { estado(); toast('Sin señal: los cambios que
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); S.instalar = e; });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
 
-function titulo(t) { $('#titulo').textContent = t; $('#atras').hidden = !S.lev; }
-$('#atras').onclick = () => cerrarLev();
+function titulo(t) { $('#titulo').textContent = t; $('#atras').hidden = !S.lev && !S.ruta.cid; }
+$('#atras').onclick = () => atras();
 $('#menuBtn').onclick = () => menu();
 
 // ---------- hojas (diálogos) ----------
@@ -134,7 +142,7 @@ onAuthStateChanged(auth, u => {
 });
 
 function pantallaIngreso(err = '') {
-  detenerTodo(); S.lev = null; titulo('TIES');
+  detenerTodo(); S.lev = null; titulo('TIES'); $('#atras').hidden = true;
   app.innerHTML = `<div class="card ingreso">
     <img src="icon.svg" class="logo" alt="">
     <h2>Levantamiento de candados</h2>
@@ -166,60 +174,221 @@ function pantallaIngreso(err = '') {
 
 function detenerTodo() {
   S.unsubLevs?.(); S.unsubLevs = null;
+  S.unsubCat?.forEach(f => f()); S.unsubCat = null;
   S.unsubInds?.(); S.unsubInds = null;
   cerrarModal();
 }
 
-// ---------- levantamientos ----------
+// ---------- clientes, plantas, calderas y proyectos ----------
+// El catálogo vive en levantamientos/_cat/… para usar las mismas reglas de seguridad.
+// Un proyecto (por año) es un documento de "levantamientos" con cid, pid, kid y anio.
+const catCol = c => collection(db, 'levantamientos', '_cat', c);
+const catRef = (c, id) => doc(db, 'levantamientos', '_cat', c, id);
+const CLIENTES_BASE = [{ id: 'arauco', nombre: 'Arauco' }, { id: 'cmpc', nombre: 'CMPC' }];
+const porNombre = (a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true });
+const cli = id => S.cat.clientes.find(x => x.id === id);
+const pla = id => S.cat.plantas.find(x => x.id === id);
+const cal = id => S.cat.calderas.find(x => x.id === id);
+const proyectosDe = kid => S.levs.filter(l => l.kid === kid).sort((a, b) => (b.anio || 0) - (a.anio || 0) || b.c - a.c);
+// "Arauco · Valdivia · Caldera Recuperadora"
+const rutaTxt = l => [cli(l.cid)?.nombre, pla(l.pid)?.nombre, cal(l.kid)?.nombre].filter(Boolean).join(' · ');
+const nombreCompleto = l => [rutaTxt(l), l.nombre].filter(Boolean).join(' · ');
+// guardar y mostrar de inmediato (sin esperar la respuesta de Firestore)
+function crearCat(c, datos) {
+  const ref = doc(catCol(c)), x = { ...datos, c: Date.now(), u: S.nombre };
+  setDoc(ref, x).catch(errEsc);
+  S.cat[c] = [...S.cat[c], { id: ref.id, ...x }].sort(porNombre);
+  return ref.id;
+}
+const num = (id, min, max) => { const v = parseInt($(id).value, 10); return v >= min && v <= max ? v : null; };
+
 function inicio() {
   detenerTodo(); estado();
+  const err = e => toast('Error: ' + (e.code || e.message), 6000);
   S.unsubLevs = onSnapshot(query(collection(db, 'levantamientos'), orderBy('c', 'desc')), snap => {
     S.levs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (S.lev) {
       const l = S.levs.find(x => x.id === S.lev.id);
-      if (!l) { toast('El levantamiento fue eliminado'); return cerrarLev(); }
-      const cambio = l.p !== S.lev.p || l.n !== S.lev.n || l.t !== S.lev.t || l.nombre !== S.lev.nombre;
-      S.lev = l; titulo(l.nombre); if (cambio) render();
+      if (!l) { toast('El proyecto fue eliminado'); return cerrarLev(); }
+      const cambio = l.p !== S.lev.p || l.n !== S.lev.n || l.t !== S.lev.t || l.nombre !== S.lev.nombre || l.kid !== S.lev.kid;
+      S.lev = l; tituloLev(); if (cambio) render();
     } else if (S.levId && S.levs.some(x => x.id === S.levId)) abrirLev(S.levId);
-    else home();
-  }, e => toast('Error: ' + (e.code || e.message), 6000));
+    else pantalla();
+  }, err);
+  S.unsubCat = ['clientes', 'plantas', 'calderas'].map(c => onSnapshot(catCol(c), snap => {
+    S.cat[c] = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(porNombre);
+    // CMPC y Arauco vienen de partida (IDs fijos: si dos personas lo hacen a la vez no se duplican)
+    if (c === 'clientes' && !snap.metadata.fromCache && snap.empty)
+      CLIENTES_BASE.forEach(x => setDoc(catRef('clientes', x.id), { nombre: x.nombre, c: Date.now(), u: S.nombre }).catch(errEsc));
+    if (S.lev) tituloLev(); else if (!S.levId) pantalla();
+  }, err));
 }
+
+function atras() {
+  if (S.lev) return cerrarLev();
+  const r = S.ruta;
+  if (r.kid) r.kid = null; else if (r.pid) r.pid = null; else r.cid = null;
+  ir(r);
+}
+function ir(r) {
+  S.ruta = { cid: r.cid || null, pid: r.pid || null, kid: r.kid || null };
+  ls.set('ties_ruta', S.ruta); if (S.ruta.cid) guardia();
+  window.scrollTo(0, 0); pantalla();
+}
+
+function pantalla() {
+  if (S.lev) return;
+  const r = S.ruta;
+  // si algo se borró, subir al nivel que todavía existe
+  if (r.kid && !cal(r.kid) && S.cat.calderas.length) r.kid = null;
+  if (r.pid && !pla(r.pid) && S.cat.plantas.length) { r.pid = null; r.kid = null; }
+  if (r.cid && !cli(r.cid) && S.cat.clientes.length) { r.cid = null; r.pid = null; r.kid = null; }
+  if (r.kid) vistaCaldera(); else if (r.pid) vistaPlanta(); else if (r.cid) vistaCliente(); else home();
+}
+
+const cabSimple = (t, sub) => `<div class="cabniv"><div class="ctit"><b>${t}</b>${sub ? `<span>${sub}</span>` : ''}</div></div>`;
+const itemNav = (attr, icono, tit, sub) => `<button class="item nav" ${attr}><span class="inav">${ic(icono, 26)}</span>
+  <div><b>${tit}</b>${sub ? `<span>${sub}</span>` : ''}</div>${ic('derecha', 26)}</button>`;
+const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
 
 function home() {
   S.lev = null; titulo('TIES');
-  app.innerHTML = `<div class="hola">Hola, <b>${esc(S.nombre)}</b></div>
-    <button class="btn pri" id="bNuevo">${ic('agregar')}Nuevo levantamiento</button>
-    <h3>Levantamientos</h3>
-    ${S.levs.length ? S.levs.map(l => `<button class="item" data-id="${l.id}"><b>${esc(l.nombre)}</b>
-      <span>${l.p} paneles · ${l.n} niveles · ${l.t} tubos</span>
-      <small>Creado por ${esc(l.u)} · ${fecha(l.c)}</small></button>`).join('')
-      : '<p class="vacio">Aún no hay levantamientos. Crea uno para empezar.</p>'}`;
-  $('#bNuevo').onclick = nuevoLev;
+  const sin = S.levs.filter(l => !l.kid || !cal(l.kid));
+  app.innerHTML = cabSimple(`Hola, ${esc(S.nombre)}`, 'Elige cliente, planta y caldera') +
+    `<h3>Clientes</h3>` +
+    (S.cat.clientes.map(c => {
+      const pl = S.cat.plantas.filter(p => p.cid === c.id).length, ca = S.cat.calderas.filter(k => k.cid === c.id).length;
+      return itemNav(`data-cid="${c.id}"`, 'cliente', esc(c.nombre), `${plural(pl, 'planta', 'plantas')} · ${plural(ca, 'caldera', 'calderas')}`);
+    }).join('') || '<p class="vacio">Cargando clientes…</p>') +
+    `<button class="btn" id="bCli">${ic('agregar')}Nuevo cliente</button>` +
+    (S.levs.some(l => l.kid && cal(l.kid)) ? `<h3>Proyectos recientes</h3>` + S.levs.filter(l => l.kid && cal(l.kid)).slice(0, 4)
+      .map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), esc(rutaTxt(l)))).join('') : '') +
+    (sin.length ? `<h3>Sin caldera asignada</h3><p class="nota">Asígnales una caldera en Ajustes, dentro del proyecto.</p>` +
+      sin.map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), `${l.p} paneles · ${l.n} niveles · ${l.t} tubos`)).join('') : '');
+  app.querySelectorAll('[data-cid]').forEach(b => b.onclick = () => ir({ cid: b.dataset.cid }));
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
+  $('#bCli').onclick = () => formNombre('Nuevo cliente', '', 'Ej. Celulosa Arauco', nombre => {
+    ir({ cid: crearCat('clientes', { nombre }) });
+  });
 }
 
-const num = (id, min, max) => { const v = parseInt($(id).value, 10); return v >= min && v <= max ? v : null; };
+function vistaCliente() {
+  const c = cli(S.ruta.cid); if (!c) return home();
+  titulo(c.nombre);
+  const ps = S.cat.plantas.filter(p => p.cid === c.id);
+  app.innerHTML = cabSimple(esc(c.nombre), 'Cliente · ' + plural(ps.length, 'planta', 'plantas')) +
+    `<h3>Plantas</h3>` +
+    (ps.map(p => itemNav(`data-pid="${p.id}"`, 'planta', esc(p.nombre), plural(S.cat.calderas.filter(k => k.pid === p.id).length, 'caldera', 'calderas'))).join('')
+      || '<p class="vacio">Aún no hay plantas. Agrega la primera.</p>') +
+    `<button class="btn pri" id="bPla">${ic('agregar')}Nueva planta</button>
+    <div class="acciones"><button class="btn" id="bRen">${ic('editar')}Renombrar</button><button class="btn peligro" id="bDel">${ic('borrar')}Eliminar</button></div>`;
+  app.querySelectorAll('[data-pid]').forEach(b => b.onclick = () => ir({ cid: c.id, pid: b.dataset.pid }));
+  $('#bPla').onclick = () => formNombre('Nueva planta · ' + c.nombre, '', 'Ej. Valdivia', nombre => {
+    ir({ cid: c.id, pid: crearCat('plantas', { nombre, cid: c.id }) });
+  });
+  $('#bRen').onclick = () => formNombre('Renombrar cliente', c.nombre, '', nombre => updateDoc(catRef('clientes', c.id), { nombre }).catch(errEsc));
+  $('#bDel').onclick = () => {
+    if (ps.length) return toast('Primero elimina sus plantas');
+    if (!confirm(`¿Eliminar el cliente ${c.nombre}?`)) return;
+    writeBatch(db).delete(catRef('clientes', c.id)).commit().catch(errEsc); ir({});
+  };
+}
 
-function nuevoLev() {
-  const d = ls.get('ties_dim', { p: 25, n: 7, t: 15 });
-  hoja(`<h3>Nuevo levantamiento</h3>
-    <label>Nombre<input id="fNom" value="Sobrecalentador PGP ${new Date().getFullYear()}"></label>
-    <div class="fila3">
-      <label>Paneles<input id="fP" type="number" inputmode="numeric" value="${d.p}"></label>
-      <label>Niveles<input id="fN" type="number" inputmode="numeric" value="${d.n}"></label>
-      <label>Tubos<input id="fT" type="number" inputmode="numeric" value="${d.t}"></label>
-    </div>
-    <p class="nota">Un candado entre cada par de tubos (15 tubos = 14 candados por panel). Se puede cambiar después en Ajustes.</p>
-    <div class="acciones"><button class="btn" data-x>Cancelar</button><button class="btn pri" id="fOk">Crear</button></div>`);
+function vistaPlanta() {
+  const p = pla(S.ruta.pid), c = cli(S.ruta.cid); if (!p) return ir({ cid: S.ruta.cid });
+  titulo(p.nombre);
+  const ks = S.cat.calderas.filter(k => k.pid === p.id);
+  app.innerHTML = cabSimple(esc(p.nombre), `${esc(c?.nombre || '')} · planta`) +
+    `<h3>Calderas</h3>` +
+    (ks.map(k => itemNav(`data-kid="${k.id}"`, 'caldera', esc(k.nombre),
+      `${k.p} paneles · ${k.n} niveles · ${k.t} tubos · ${plural(proyectosDe(k.id).length, 'proyecto', 'proyectos')}`)).join('')
+      || '<p class="vacio">Aún no hay calderas. Agrega la primera.</p>') +
+    `<button class="btn pri" id="bCal">${ic('agregar')}Nueva caldera</button>
+    <div class="acciones"><button class="btn" id="bRen">${ic('editar')}Renombrar</button><button class="btn peligro" id="bDel">${ic('borrar')}Eliminar</button></div>`;
+  app.querySelectorAll('[data-kid]').forEach(b => b.onclick = () => ir({ cid: p.cid, pid: p.id, kid: b.dataset.kid }));
+  $('#bCal').onclick = () => formCaldera(null, p);
+  $('#bRen').onclick = () => formNombre('Renombrar planta', p.nombre, '', nombre => updateDoc(catRef('plantas', p.id), { nombre }).catch(errEsc));
+  $('#bDel').onclick = () => {
+    if (ks.length) return toast('Primero elimina sus calderas');
+    if (!confirm(`¿Eliminar la planta ${p.nombre}?`)) return;
+    writeBatch(db).delete(catRef('plantas', p.id)).commit().catch(errEsc); ir({ cid: p.cid });
+  };
+}
+
+function vistaCaldera() {
+  const k = cal(S.ruta.kid); if (!k) return ir({ cid: S.ruta.cid, pid: S.ruta.pid });
+  titulo(k.nombre);
+  const pr = proyectosDe(k.id);
+  app.innerHTML = cabSimple(esc(k.nombre), `${esc(cli(k.cid)?.nombre || '')} · ${esc(pla(k.pid)?.nombre || '')}<br>${k.p} paneles · ${k.n} niveles · ${k.t} tubos`) +
+    `<h3>Proyectos</h3>` +
+    (pr.map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), `${l.anio || ''} · creado por ${esc(l.u)} · ${fecha(l.c)}`)).join('')
+      || '<p class="vacio">Aún no hay proyectos. Crea el de este año.</p>') +
+    `<button class="btn pri" id="bPro">${ic('agregar')}Nuevo proyecto</button>
+    <div class="acciones"><button class="btn" id="bEdi">${ic('editar')}Editar caldera</button><button class="btn peligro" id="bDel">${ic('borrar')}Eliminar</button></div>`;
+  app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
+  $('#bPro').onclick = () => nuevoProyecto(k);
+  $('#bEdi').onclick = () => formCaldera(k, pla(k.pid));
+  $('#bDel').onclick = () => {
+    if (pr.length) return toast('Primero elimina sus proyectos (Ajustes, dentro de cada proyecto)');
+    if (!confirm(`¿Eliminar la caldera ${k.nombre}?`)) return;
+    writeBatch(db).delete(catRef('calderas', k.id)).commit().catch(errEsc); ir({ cid: k.cid, pid: k.pid });
+  };
+}
+
+function formNombre(tit, val, ph, ok) {
+  hoja(`<h3>${esc(tit)}</h3><label>Nombre<input id="fNom" value="${esc(val)}" placeholder="${esc(ph)}"></label>
+    <div class="acciones"><button class="btn" data-x>Cancelar</button><button class="btn pri" id="fOk">Guardar</button></div>`);
+  const i = $('#fNom'); i.focus();
+  $('#fOk').onclick = () => { const v = i.value.trim(); if (!v) return toast('Escribe un nombre'); cerrarModal(); ok(v); };
+}
+
+const filaDim = d => `<div class="fila3">
+  <label>Paneles<input id="fP" type="number" inputmode="numeric" value="${d.p}"></label>
+  <label>Niveles<input id="fN" type="number" inputmode="numeric" value="${d.n}"></label>
+  <label>Tubos<input id="fT" type="number" inputmode="numeric" value="${d.t}"></label></div>`;
+const leerDim = () => ({ p: num('#fP', 1, 200), n: num('#fN', 1, 30), t: num('#fT', 2, 100) });
+
+function formCaldera(k, p) {
+  const d = k || ls.get('ties_dim', { p: 25, n: 7, t: 15 });
+  hoja(`<h3>${k ? 'Editar caldera' : 'Nueva caldera · ' + esc(p.nombre)}</h3>
+    <label>Nombre<input id="fNom" value="${esc(k?.nombre || '')}" placeholder="Ej. Caldera Recuperadora"></label>
+    ${filaDim(d)}
+    <p class="nota">Sobrecalentador: un candado entre cada par de tubos. Estas cantidades se precargan en cada proyecto nuevo${k ? ' (los proyectos existentes no cambian)' : ''}.</p>
+    <div class="acciones"><button class="btn" data-x>Cancelar</button><button class="btn pri" id="fOk">Guardar</button></div>`);
   $('#fOk').onclick = () => {
-    const nombre = $('#fNom').value.trim(), p = num('#fP', 1, 200), n = num('#fN', 1, 30), t = num('#fT', 2, 100);
-    if (!nombre || !p || !n || !t) return toast('Revisa el nombre y las cantidades');
-    ls.set('ties_dim', { p, n, t });
+    const nombre = $('#fNom').value.trim(), { p: pp, n, t } = leerDim();
+    if (!nombre || !pp || !n || !t) return toast('Revisa el nombre y las cantidades');
+    ls.set('ties_dim', { p: pp, n, t }); cerrarModal();
+    if (k) return updateDoc(catRef('calderas', k.id), { nombre, p: pp, n, t }).catch(errEsc);
+    ir({ cid: p.cid, pid: p.id, kid: crearCat('calderas', { nombre, cid: p.cid, pid: p.id, p: pp, n, t }) });
+  };
+}
+
+function nuevoProyecto(k) {
+  const anio = new Date().getFullYear();
+  hoja(`<h3>Nuevo proyecto · ${esc(k.nombre)}</h3>
+    <div class="fila2"><label>Año<input id="fAn" type="number" inputmode="numeric" value="${anio}"></label>
+    <label>Nombre<input id="fNom" value="PGP ${anio}"></label></div>
+    ${filaDim(k)}
+    <p class="nota">Cantidades precargadas de la caldera. Se pueden cambiar después en Ajustes.</p>
+    <div class="acciones"><button class="btn" data-x>Cancelar</button><button class="btn pri" id="fOk">Crear</button></div>`);
+  const an = $('#fAn'), nom = $('#fNom');
+  an.oninput = () => { if (/^PGP \d{0,4}$/.test(nom.value)) nom.value = 'PGP ' + an.value; };
+  $('#fOk').onclick = () => {
+    const a = num('#fAn', 1990, 2100), nombre = nom.value.trim(), { p, n, t } = leerDim();
+    if (!a || !nombre || !p || !n || !t) return toast('Revisa el año, el nombre y las cantidades');
+    if (proyectosDe(k.id).some(l => l.anio === a && l.nombre === nombre) && !confirm(`Ya existe "${nombre}" en ${a}. ¿Crear otro igual?`)) return;
     const ref = doc(collection(db, 'levantamientos'));
     S.levId = ref.id; ls.set('ties_lev', ref.id);
-    setDoc(ref, { nombre, p, n, t, c: Date.now(), u: S.nombre, uid: S.uid }).catch(errEsc);
+    setDoc(ref, { nombre, anio: a, cid: k.cid, pid: k.pid, kid: k.id, p, n, t, c: Date.now(), u: S.nombre, uid: S.uid }).catch(errEsc);
     cerrarModal();
   };
+}
+
+function tituloLev() {
+  if (!S.lev) return;
+  const k = cal(S.lev.kid);
+  titulo(k ? `${k.nombre} · ${S.lev.nombre}` : S.lev.nombre);
 }
 
 function abrirLev(id) {
@@ -228,7 +397,8 @@ function abrirLev(id) {
   S.lev = l; S.levId = id; ls.set('ties_lev', id);
   S.nivel = Math.min(ls.get('ties_nivel_' + id, 1), l.n);
   S.inds = new Map(); S.primera = true; S.vista = 'grilla'; S.filtroN = 0;
-  titulo(l.nombre);
+  if (l.kid) { S.ruta = { cid: l.cid, pid: l.pid, kid: l.kid }; ls.set('ties_ruta', S.ruta); }
+  tituloLev();
   S.unsubInds?.();
   S.unsubInds = onSnapshot(indCol(), { includeMetadataChanges: true }, snap => {
     const m = new Map(); let pend = 0;
@@ -249,7 +419,7 @@ function abrirLev(id) {
 function cerrarLev() {
   S.unsubInds?.(); S.unsubInds = null; cerrarModal();
   S.lev = null; S.levId = null; ls.set('ties_lev', null); S.pend = 0; estado();
-  home();
+  window.scrollTo(0, 0); pantalla();
 }
 
 // ---------- pantalla del levantamiento ----------
@@ -272,8 +442,8 @@ function conteoNiveles() {
 // ---------- dibujo de tubos y candados (igual que BoilerImage) ----------
 // unidades: etiqueta L, un tubo cada u, alto de fila rh; el candado c va entre los tubos c y c+1
 const G = { L: 34, u: 20, rh: 34, top: 14 };
-const SVG_CSS = '.tb{fill:#dfe6ee;stroke:#93a3b4;stroke-width:1.1}.tbi{fill:#fff}' +
-  '.cv{fill:#fff;stroke:#93a3b4;stroke-width:1}.ci{fill:#F48FB1;stroke:#c2185b;stroke-width:1}.cf{fill:#D32F2F;stroke:#8e1b1b;stroke-width:1}' +
+const SVG_CSS = '.tb{fill:#e2e8ef;stroke:#7b8fa4;stroke-width:1.2}.tbi{fill:#fff}.fz{fill:#f2f5f8}' +
+  '.cv{fill:#fff;stroke:#7b8fa4;stroke-width:1.1}.ci{fill:#F48FB1;stroke:#c2185b;stroke-width:1}.cf{fill:#D32F2F;stroke:#8e1b1b;stroke-width:1}' +
   'text{font-family:system-ui,Roboto,Arial,sans-serif;text-anchor:middle;dominant-baseline:central}' +
   '.ti,.tf{font-size:8.5px;font-weight:700}.ti{fill:#5a0d26}.tf{fill:#fff}' +
   '.pl{font-size:10.5px;font-weight:700;fill:#33475b;text-anchor:start}.pl.r{fill:#D32F2F}.tn{font-size:7px;fill:#7b8a99}';
@@ -306,6 +476,7 @@ function svgNivel(n, w, h) {
   let s = numerosTubo(L, top / 2);
   for (let p = 1; p <= l.p; p++) {
     const y = top + (p - 1) * rh;
+    if (p % 2 === 0) s += `<rect x="0" y="${y}" width="${W}" height="${rh}" class="fz"/>`;
     s += `<text x="2" y="${y + rh / 2}" class="pl${panelCon(n, p) ? ' r' : ''}">P${pad(p)}</text>` + filaSVG(n, p, y, L);
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}"${w ? ` width="${w}" height="${h}"` : ''}><style>${SVG_CSS}</style>${s}</svg>`;
@@ -319,7 +490,7 @@ function puntoSVG(e, el, L, ancho) {
 }
 
 function cabNivel(sub, chips) {
-  return `<div class="cabniv"><div class="ctit">${sub}</div><div class="niveles">${chips}</div></div>`;
+  return `<div class="cabniv"><div class="ctit">${sub}</div></div><div class="niveles fijo">${chips}</div>`;
 }
 
 function vistaGrilla() {
@@ -327,8 +498,8 @@ function vistaGrilla() {
   const chips = range(l.n).map(i => `<button class="chip ${i === n ? 'on' : ''}" data-n="${i}">N${i}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
   return cabNivel(`<b>Candados — Nivel ${n}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, chips) +
     `<div class="gwrap" id="gwrap">${svgNivel(n)}</div>
-    <div class="leyenda"><span class="sw ind"></span>sin foto <span class="sw foto"></span>con foto ·
-      ${l.t > 16 ? 'toca un panel para abrirlo en grande' : 'toca el candado entre dos tubos (o el nombre del panel para verlo en grande)'}</div>`;
+    <div class="leyenda"><span class="ley"><span class="sw ind"></span>sin foto</span><span class="ley"><span class="sw foto"></span>con foto</span>
+      <span>${l.t > 16 ? 'Toca un panel para abrirlo en grande.' : 'Toca el candado entre dos tubos, o el nombre del panel para verlo en grande.'}</span></div>`;
 }
 
 function vistaLista() {
@@ -453,7 +624,7 @@ async function comprimir(file, x) {
       const fs = Math.round(bh * 0.34);
       g.fillStyle = '#0E3A5F'; g.fillRect(0, h, w, bh); g.textBaseline = 'middle';
       g.fillStyle = '#fff'; g.font = `bold ${fs}px sans-serif`; g.fillText(`${codigo(x)} · ${tipoTxt(x)}`, fs * 0.6, h + bh * 0.3);
-      g.fillStyle = '#F5A300'; g.font = `${Math.round(fs * 0.8)}px sans-serif`; g.fillText(`${S.lev.nombre} · ${S.nombre} · ${fecha(Date.now())}`, fs * 0.6, h + bh * 0.72);
+      g.fillStyle = '#F5A300'; g.font = `${Math.round(fs * 0.8)}px sans-serif`; g.fillText(`${nombreCompleto(S.lev)} · ${S.nombre} · ${fecha(Date.now())}`, fs * 0.6, h + bh * 0.72);
     }
     for (const q of [0.75, 0.62, 0.5]) { const d = cv.toDataURL('image/jpeg', q); if (d.length < 900000) return d; }
     max = Math.round(max * 0.75);
@@ -597,7 +768,7 @@ async function lamina(n) {
   g.fillStyle = '#0E3A5F'; g.fillRect(0, 0, W, 84);
   g.textBaseline = 'middle';
   g.fillStyle = '#fff'; g.font = 'bold 30px sans-serif'; g.fillText(`Candados sobrecalentador — Nivel ${n}`, m, 32);
-  g.fillStyle = '#F5A300'; g.font = '18px sans-serif'; g.fillText(`${l.nombre} · ${xs.length} indicaciones · ${fecha(Date.now())}`, m, 64);
+  g.fillStyle = '#F5A300'; g.font = '18px sans-serif'; g.fillText(`${nombreCompleto(l)} · ${xs.length} indicaciones · ${fecha(Date.now())}`, m, 64);
   g.font = '16px sans-serif'; const ly = 108;
   g.fillStyle = '#F48FB1'; g.fillRect(m, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('Sin foto', m + 24, ly);
   g.fillStyle = '#D32F2F'; g.fillRect(m + 120, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('Con foto', m + 144, ly);
@@ -630,7 +801,7 @@ function csv() {
 }
 
 function exportar() {
-  const n = S.nivel, nom = limpio(S.lev.nombre);
+  const n = S.nivel, nom = limpio(nombreCompleto(S.lev));
   hoja(`<h3>Exportar</h3>
     <button class="btn" id="eCsv">${ic('planilla')}Planilla (CSV para Excel)</button>
     <button class="btn" id="eLam">${ic('lamina')}Lámina del nivel ${n} (PNG)</button>
@@ -652,8 +823,8 @@ async function exportarZip() {
   const b = $('#eZip'), bt = $('#eZip span'); b.disabled = true; bt.textContent = 'Preparando…';
   try {
     const { default: JSZip } = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
-    const z = new JSZip(), base = `Candados ${limpio(S.lev.nombre)}`;
-    z.file(`${base}/Candados ${limpio(S.lev.nombre)}.csv`, csv());
+    const z = new JSZip(), base = `Candados ${limpio(nombreCompleto(S.lev))}`;
+    z.file(`${base}/${base}.csv`, csv());
     for (const n of range(S.lev.n)) {
       if ([...S.inds.values()].some(x => x.n === n)) z.file(`${base}/Candados Nivel ${n}.png`, await canvasBlob(await lamina(n)));
     }
@@ -684,8 +855,11 @@ async function exportarZip() {
 function ajustes() {
   const l = S.lev;
   hoja(`<h3>Ajustes</h3>
-    <h4>Levantamiento (cambia para todos)</h4>
-    <label>Nombre<input id="aNom" value="${esc(l.nombre)}"></label>
+    <h4>Proyecto (cambia para todos)</h4>
+    <label>Caldera<select id="aCal"><option value="">— Sin asignar —</option>${S.cat.calderas.map(k => ({ k, t: rutaTxt({ cid: k.cid, pid: k.pid, kid: k.id }) }))
+      .sort((a, b) => a.t.localeCompare(b.t, 'es')).map(({ k, t }) => `<option value="${k.id}" ${k.id === l.kid ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+    <div class="fila2"><label>Año<input id="aAn" type="number" inputmode="numeric" value="${l.anio || new Date(l.c > 946684800000 ? l.c : Date.now()).getFullYear()}"></label>
+    <label>Nombre<input id="aNom" value="${esc(l.nombre)}"></label></div>
     <div class="fila3">
       <label>Paneles<input id="aP" type="number" inputmode="numeric" value="${l.p}"></label>
       <label>Niveles<input id="aN" type="number" inputmode="numeric" value="${l.n}"></label>
@@ -696,16 +870,18 @@ function ajustes() {
     <label class="sw"><input type="checkbox" id="aCam" ${ls.get('ties_cam', true) ? 'checked' : ''}> Abrir la cámara al marcar un candado</label>
     <label class="sw"><input type="checkbox" id="aSel" ${ls.get('ties_sello', true) ? 'checked' : ''}> Sello con código, usuario y fecha en la foto</label>
     <h4>Zona de peligro</h4>
-    <button class="btn peligro" id="aDel">${ic('borrar')}Eliminar levantamiento</button>
+    <button class="btn peligro" id="aDel">${ic('borrar')}Eliminar proyecto</button>
     <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
   $('#aCam').onchange = e => ls.set('ties_cam', e.target.checked);
   $('#aSel').onchange = e => ls.set('ties_sello', e.target.checked);
   $('#aOk').onclick = () => {
     const nombre = $('#aNom').value.trim(), p = num('#aP', 1, 200), n = num('#aN', 1, 30), t = num('#aT', 2, 100);
-    if (!nombre || !p || !n || !t) return toast('Revisa el nombre y las cantidades');
+    const anio = num('#aAn', 1990, 2100), k = cal($('#aCal').value);
+    if (!nombre || !p || !n || !t || !anio) return toast('Revisa el año, el nombre y las cantidades');
     const fuera = [...S.inds.values()].filter(x => x.n > n || x.p > p || x.c > t - 1).length;
     if (fuera && !confirm(`${fuera} indicaciones quedan fuera de la grilla nueva (no se borran, siguen en la Lista y el Excel). ¿Continuar?`)) return;
-    updateDoc(levRef(l.id), { nombre, p, n, t }).catch(errEsc);
+    updateDoc(levRef(l.id), { nombre, p, n, t, anio, kid: k?.id || null, pid: k?.pid || null, cid: k?.cid || null }).catch(errEsc);
+    if (k) { S.ruta = { cid: k.cid, pid: k.pid, kid: k.id }; ls.set('ties_ruta', S.ruta); }
     cerrarModal(); toast('Ajustes guardados');
   };
   $('#aDel').onclick = () => {
