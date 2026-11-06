@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '1.7';
+const VERSION = '1.8';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -36,6 +36,7 @@ const IC = {
   caldera: 'M12 12.9l-2.13 2.09C9.31 15.55 9 16.28 9 17.06 9 18.68 10.35 20 12 20s3-1.32 3-2.94c0-.78-.31-1.52-.87-2.07L12 12.9zM16 6l-.44.55C14.38 8.02 12 7.19 12 5.3V2S4 6 4 13c0 2.92 1.56 5.47 3.89 6.86-.56-.79-.89-1.76-.89-2.8 0-1.32.52-2.56 1.47-3.5L12 10.1l3.53 3.47c.95.93 1.47 2.17 1.47 3.5 0 1.02-.31 1.96-.85 2.75 1.89-1.15 3.29-3.06 3.71-5.3.66-3.55-1.07-6.9-3.86-8.52z',
   proyecto: 'M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2zm-7 5h5v5h-5z',
   derecha: 'M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
+  informe: 'M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
   salir: 'M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z'
 };
 const ic = (n, s = 24) => `<svg class="ic" viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true"><path d="${IC[n]}"/></svg>`;
@@ -696,7 +697,7 @@ function vistaLista() {
 
 function barraInferior() {
   const b = (id, i, tx) => `<button id="${id}">${ic(i, 30)}<span>${tx}</span></button>`;
-  return `<nav class="abajo">${S.vista === 'lista' ? b('nVis', 'grilla', 'Grilla') : b('nVis', 'lista', 'Lista')}${b('nLam', 'lamina', 'Lámina')}${b('nExp', 'compartir', 'Exportar')}${b('nAju', 'ajustes', 'Ajustes')}</nav>`;
+  return `<nav class="abajo">${S.vista === 'lista' ? b('nVis', 'grilla', 'Grilla') : b('nVis', 'lista', 'Lista')}${b('nInf', 'informe', 'Informe')}${b('nLam', 'lamina', 'Lámina')}${b('nExp', 'compartir', 'Exportar')}${b('nAju', 'ajustes', 'Ajustes')}</nav>`;
 }
 
 function conectar() {
@@ -728,6 +729,7 @@ function conectar() {
   };
   $('#nLam').onclick = () => verLamina(S.vista === 'lista' && S.filtroN ? S.filtroN : S.nivel);
   $('#nExp').onclick = exportar;
+  $('#nInf').onclick = menuInforme;
   $('#nAju').onclick = ajustes;
 }
 
@@ -1070,6 +1072,79 @@ async function exportarZip() {
   } catch (e) {
     toast('No se pudo armar el ZIP: ' + (e.code || e.message), 6000);
     const bb = $('#eZip'); if (bb) { bb.disabled = false; bb.querySelector('span').textContent = 'ZIP: fotos + láminas + planilla'; }
+  }
+}
+
+// ---------- informe PDF / Word (como el de BoilerImage, con foto general y de detalle) ----------
+const medir = d => cargarImg(d).then(i => ({ d, w: i.naturalWidth, h: i.naturalHeight }));
+
+async function datosInforme(avance) {
+  const l = S.lev, xs = [...S.inds.values()].sort(ordenar), cnt = conteoNiveles();
+  const c = {
+    titulo: 'Inspección de candados',
+    subtitulo: `${nombreCompleto(l)} · ${fecha(Date.now()).slice(0, 10)}`,
+    resumen: `${l.n} niveles · ${l.p} paneles · ${l.t} tubos por panel (${l.t - 1} candados) · ${xs.length} indicación(es)`,
+    conteo: range(l.n).map(i => `${chipNom(i)}: ${cnt[i] || 0}`).join('    '),
+    filas: xs.map(x => [codigo(x), chipNom(x.n), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || '']),
+    niveles: [], fichas: [], pie: 'TIES · Informe de candados'
+  };
+  for (const n of range(l.n)) {
+    const ys = xs.filter(x => x.n === n); if (!ys.length) continue;
+    avance(`Grilla ${chipNom(n)}…`);
+    const uw = G.L + l.t * G.u, uh = G.top + l.p * G.rh, gw = Math.round(uw * 2.2), gh = Math.round(uh * 2.2);
+    const im = await cargarImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgNivel(n, gw, gh)));
+    const cv = document.createElement('canvas'); cv.width = gw; cv.height = gh; cv.getContext('2d').drawImage(im, 0, 0, gw, gh);
+    c.niveles.push({
+      titulo: `${nivelNom(n)} · ${sobre(l.sid)?.nombre || 'Sobrecalentador'}`, img: { d: cv.toDataURL('image/png'), w: gw, h: gh },
+      items: ys.map(x => `P${pad(x.p)} · T${pad(x.c)}-${pad(x.c + 1)}  —  ${tipoTxt(x)}  (general ${nG(x)} · detalle ${nD(x)})${x.nota ? '  · ' + x.nota : ''}`)
+    });
+  }
+  let i = 0;
+  for (const x of xs) {
+    avance(`Fotos ${++i} de ${xs.length}…`);
+    let fs = [];
+    if (x.nf > 0) fs = (await getDocs(query(fotosCol(x.id), orderBy('t')))).docs.map(d => d.data());
+    const g = fs.find(f => tipoFoto(f) === 'general'), d = fs.find(f => tipoFoto(f) === 'detalle');
+    c.fichas.push({
+      titulo: `${codigo(x)}  ·  ${tipoTxt(x)}`,
+      ubic: `${nivelNom(x.n)} · Panel ${pad(x.p)} · candado entre tubos ${x.c} y ${x.c + 1} · registró ${x.u}, ${fecha(x.t)}`,
+      general: g ? await medir(g.d) : null, detalle: d ? await medir(d.d) : null, obs: x.nota || ''
+    });
+  }
+  return c;
+}
+
+function menuInforme() {
+  const xs = [...S.inds.values()], faltan = xs.filter(x => !completa(x)).length;
+  hoja(`<h3>Informe de candados</h3>
+    <p class="nota">${esc(nombreCompleto(S.lev))}<br>Resumen con la tabla de indicaciones, una hoja por nivel con su grilla y el detalle de cada candado con foto general, foto de detalle y observaciones.</p>
+    ${faltan ? `<p class="aviso">${ic('camara', 18)} ${plural(faltan, 'indicación no tiene', 'indicaciones no tienen')} las dos fotos; en el informe aparecerá "Sin foto".</p>` : ''}
+    <button class="btn pri" id="iPdf">${ic('informe')}<span>Informe PDF</span></button>
+    <button class="btn" id="iDoc">${ic('informe')}<span>Informe Word (.docx)</span></button>
+    <p class="nota" id="iAv"></p>
+    <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
+  $('#iPdf').onclick = () => generarInforme('pdf');
+  $('#iDoc').onclick = () => generarInforme('docx');
+}
+
+async function generarInforme(tipo) {
+  const bs = ['#iPdf', '#iDoc'].map(s => $(s)); bs.forEach(b => b && (b.disabled = true));
+  const av = t => { const e = $('#iAv'); if (e) e.textContent = t; };
+  try {
+    av('Preparando…');
+    const c = await datosInforme(av);
+    av(tipo === 'pdf' ? 'Armando el PDF…' : 'Armando el Word…');
+    const m = await import('./informe.js');
+    const blob = tipo === 'pdf' ? await m.informePDF(c) : await m.informeWord(c);
+    const nombre = `Informe candados ${limpio(nombreCompleto(S.lev))} ${hoy()}.${tipo}`;
+    hoja(`<h3>Informe listo</h3><p>${tipo === 'pdf' ? 'PDF' : 'Word'} · ${c.fichas.length} indicación(es) · ${(blob.size / 1048576).toFixed(1)} MB</p>
+      <button class="btn pri" id="zSh">${ic('compartir')}Compartir</button><button class="btn" id="zDes">${ic('bajar')}Guardar en Descargas</button>
+      <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
+    $('#zSh').onclick = () => compartir(blob, nombre);
+    $('#zDes').onclick = () => descargar(blob, nombre);
+  } catch (e) {
+    toast('No se pudo armar el informe: ' + (e.code || e.message), 6000);
+    bs.forEach(b => b && (b.disabled = false)); av('');
   }
 }
 
