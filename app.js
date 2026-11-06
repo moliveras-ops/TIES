@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '1.9';
+const VERSION = '2.0';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -216,6 +216,11 @@ const nombreCompleto = l => [cli(l.cid)?.nombre, pla(l.pid)?.nombre, l.nombre, c
 const nombresNiv = (l = S.lev) => sobre(l?.sid)?.nn || l?.nn || [];
 const nivelNom = (i, l) => nombresNiv(l)[i - 1] || `Nivel ${i}`;
 const chipNom = i => nombresNiv()[i - 1] || `N${i}`;
+// niveles inspeccionados: lev.insp = { n: { u, t } } (null = no inspeccionado)
+const inspN = (l, n) => l?.insp?.[n] || null;
+const nInsp = l => l ? range(l.n).filter(n => inspN(l, n)).length : 0;
+const levEv = (prj, sid) => S.levs.find(l => l.prj === prj && l.sid === sid);
+const inspTxt = l => l ? `${nInsp(l)} de ${l.n} niveles inspeccionados` : 'sin iniciar';
 const dimTxt = x => `${x.p} paneles · ${x.t} tubos · ${x.n} niveles`;
 
 // guardar y mostrar de inmediato (sin esperar la respuesta de Firestore)
@@ -235,7 +240,7 @@ function inicio() {
     if (S.lev) {
       const l = S.levs.find(x => x.id === S.lev.id);
       if (!l) { if (snap.metadata.fromCache) return; toast('El levantamiento fue eliminado'); return cerrarLev(); }
-      const cambio = l.p !== S.lev.p || l.n !== S.lev.n || l.t !== S.lev.t || l.nombre !== S.lev.nombre || l.kid !== S.lev.kid;
+      const cambio = l.p !== S.lev.p || l.n !== S.lev.n || l.t !== S.lev.t || l.nombre !== S.lev.nombre || l.kid !== S.lev.kid || JSON.stringify(l.insp || {}) !== JSON.stringify(S.lev.insp || {});
       S.lev = l; tituloLev(); if (cambio) render();
     } else if (S.levId && S.levs.some(x => x.id === S.levId)) abrirLev(S.levId);
     else pantalla();
@@ -386,12 +391,14 @@ function vistaEvento() {
   app.innerHTML = cabSimple(esc(e.nombre), `${esc(cli(e.cid)?.nombre || '')} · ${esc(pla(e.pid)?.nombre || '')} · ${e.anio}`) +
     `<h3>Calderas</h3>` +
     (ks.map(k => {
-      const n = shDe(k.id).length, ini = levs.filter(l => l.kid === k.id).length;
-      return itemNav(`data-kid="${k.id}"`, 'caldera', esc(k.nombre), n ? `${ini} de ${plural(n, 'sobrecalentador', 'sobrecalentadores')} iniciados` : 'Sin sobrecalentadores configurados');
+      const shs = shDe(k.id), tot = shs.reduce((a, x) => a + (levEv(e.id, x.id)?.n || x.n || 0), 0), ins = shs.reduce((a, x) => a + nInsp(levEv(e.id, x.id)), 0);
+      return itemNav(`data-kid="${k.id}"`, 'caldera', esc(k.nombre), shs.length ? `${plural(shs.length, 'sobrecalentador', 'sobrecalentadores')} · ${ins} de ${tot} niveles inspeccionados` : 'Sin sobrecalentadores configurados');
     }).join('') || '<p class="vacio">La planta no tiene calderas. Vuelve atrás y agrégalas en "Calderas y sobrecalentadores".</p>') +
+    `<button class="btn pri" id="bRes">${ic('lista')}Resumen de hallazgos del evento</button>` +
     `<div class="acciones"><button class="btn" id="bRen">${ic('editar')}Nombre y año</button><button class="btn peligro" id="bDel">${ic('borrar')}Eliminar</button></div>`;
   app.querySelectorAll('[data-kid]').forEach(b => b.onclick = () => ir({ cid: e.cid, pid: e.pid, prj: e.id, kid: b.dataset.kid }));
   $('#bRen').onclick = () => formEvento(e, pla(e.pid));
+  $('#bRes').onclick = () => resumenHallazgos(e.id);
   $('#bDel').onclick = () => {
     if (levs.length && prompt(`Se borrará el evento "${e.nombre}" con todos sus candados y fotos (${plural(levs.length, 'sobrecalentador', 'sobrecalentadores')}), para todos los usuarios.\nEscribe BORRAR para confirmar.`) !== 'BORRAR') return;
     if (!levs.length && !confirm(`¿Eliminar el evento ${e.nombre}?`)) return;
@@ -412,10 +419,11 @@ function vistaEventoCaldera() {
     `<h3>Sobrecalentadores</h3>` +
     (shs.map(x => {
       const l = levs.find(l => l.sid === x.id);
-      return itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), l ? `Iniciado por ${esc(l.u)} · ${fecha(l.c)}` : `${dimTxt(x)} · sin iniciar`);
+      return itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), l ? `${inspTxt(l)} · iniciado por ${esc(l.u)}` : `${dimTxt(x)} · sin iniciar`);
     }).join('') || '<p class="vacio">Esta caldera no tiene sobrecalentadores.</p>') +
     huerfanos.map(l => itemNav(`data-id="${l.id}"`, 'grilla', esc(l.nombre), 'Sobrecalentador eliminado de la caldera')).join('') +
-    `<button class="btn" id="bCfg">${ic('ajustes')}Configurar sobrecalentadores</button></div></div>`;
+    `<button class="btn pri" id="bRes">${ic('lista')}Resumen de hallazgos</button><button class="btn" id="bCfg">${ic('ajustes')}Configurar sobrecalentadores</button></div></div>`;
+  $('#bRes').onclick = () => resumenHallazgos(e.id, k.id);
   conectarCroquis(k.id, e.id);
   app.querySelectorAll('[data-sid]').forEach(b => b.onclick = () => abrirSobre(e, k, sobre(b.dataset.sid)));
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
@@ -618,7 +626,7 @@ function svgCroquis(kid, sidAct, nivAct, cnt = {}) {
   const shs = shDe(kid), { m, w, g, top, h } = CQ, W = m * 2 + shs.length * (w + g) - g, H = top + h + 22;
   let s = `<line x1="0" y1="${top}" x2="${W}" y2="${top}" stroke="#7b8fa4" stroke-width="2"/>`;
   shs.forEach((x, i) => {
-    const x0 = m + i * (w + g), act = x.id === sidAct, n = x.n || 1, paso = h / n;
+    const x0 = m + i * (w + g), act = x.id === sidAct, n = x.n || 1, paso = h / n, lv = levEv(S.lev?.prj || S.ruta.prj, x.id);
     const lab = partirTxt(abrevSH(x.nombre));
     s += `<g data-col="${i}"><rect x="${x0}" y="2" width="${w}" height="${top - 6}" rx="4" fill="${act ? '#F5A300' : '#dfe6ee'}"/>` +
       lab.map((t, j) => `<text x="${x0 + w / 2}" y="${(top - 4) / 2 + (j - (lab.length - 1) / 2) * 10}" class="cl">${esc(t)}</text>`).join('') +
@@ -627,10 +635,12 @@ function svgCroquis(kid, sidAct, nivAct, cnt = {}) {
     for (let k = 0; k < 3; k++) s += `<path d="M${x0 + 5 + k * 14} ${top + h} a6 6 0 0 0 12 0" fill="none" stroke="#8a96a3" stroke-width="2"/>`;
     for (let j = 1; j <= n; j++) {
       const y = top + (j - 0.5) * paso, on = act && j === nivAct;
-      s += `<line x1="${x0 - 3}" y1="${y}" x2="${x0 + w + 3}" y2="${y}" stroke="${on ? '#F5A300' : '#0b2a5c'}" stroke-width="${on ? 5 : 2.2}"/>`;
+      const ok = inspN(lv, j);
+      s += `<line x1="${x0 - 3}" y1="${y}" x2="${x0 + w + 3}" y2="${y}" stroke="${on ? '#F5A300' : ok ? '#2e7d32' : '#0b2a5c'}" stroke-width="${on ? 5 : ok ? 4 : 2.2}"/>`;
+      if (ok && !act) s += `<circle cx="${x0 + w / 2}" cy="${y}" r="5" fill="#2e7d32"/><path d="M${x0 + w / 2 - 2.5} ${y} l1.8 1.8 l3.2 -3.4" stroke="#fff" stroke-width="1.4" fill="none"/>`;
       if (act) {
         const t = ((x.nn || [])[j - 1] || 'N' + j).slice(0, 7);
-        s += `<rect x="${x0 + 4}" y="${y - 7}" width="${w - 8}" height="14" rx="3" fill="${on ? '#F5A300' : '#fff'}"/><text x="${x0 + w / 2}" y="${y}" class="cn">${esc(t)}</text>`;
+        s += `<rect x="${x0 + 4}" y="${y - 7}" width="${w - 8}" height="14" rx="3" fill="${on ? '#F5A300' : ok ? '#c8e6c9' : '#fff'}" stroke="${ok ? '#2e7d32' : 'none'}"/><text x="${x0 + w / 2}" y="${y}" class="cn">${esc(ok ? '✓' + t : t)}</text>`;
         if (cnt[j]) s += `<circle cx="${x0 + w + 2}" cy="${y}" r="7" fill="#D32F2F"/><text x="${x0 + w + 2}" y="${y}" class="cc">${cnt[j]}</text>`;
       }
     }
@@ -707,7 +717,8 @@ async function detectarNiveles(src, kid) {
 const cacheMapa = new Map();
 async function imagenMapa(k, { sid, nivel, cnt = {}, editar, mapa } = {}) {
   const m = mapa || k.cqmap; if (!k.img || !m) return null;
-  const clave = JSON.stringify([k.id, k.img.length, m, sid, nivel, cnt, editar]);
+  const prj = S.lev?.prj || S.ruta.prj, ins = editar ? [] : m.cols.map(c => levEv(prj, c.sid)?.insp || {});
+  const clave = JSON.stringify([k.id, k.img.length, m, sid, nivel, cnt, editar, ins]);
   if (cacheMapa.has(clave)) return cacheMapa.get(clave);
   const im = await cargarImg(k.img), e = Math.min(1, 1400 / Math.max(im.naturalWidth, im.naturalHeight));
   const W = Math.round(im.naturalWidth * e), H = Math.round(im.naturalHeight * e), u = Math.max(W, H) / 100;
@@ -726,12 +737,15 @@ async function imagenMapa(k, { sid, nivel, cnt = {}, editar, mapa } = {}) {
     }
     if (act) { g.strokeStyle = '#F5A300'; g.lineWidth = u * 0.6; g.strokeRect(x1 - u, 0.5 * u, x2 - x1 + 2 * u, H - u); }
     c.ys.forEach((yy, j) => {
-      const y = yy * H, on = act && nivel === j + 1;
+      const y = yy * H, on = act && nivel === j + 1, ok = !editar && ins[ci]?.[j + 1];
+      if (ok && !on) {
+        g.strokeStyle = '#2e7d32'; g.lineWidth = u * 0.9; g.beginPath(); g.moveTo(x1 - u * 0.6, y); g.lineTo(x2 + u * 0.6, y); g.stroke();
+        if (!act) chip((x1 + x2) / 2, y, '✓', '#2e7d32', '#fff', 1.5 * u);
+      }
       if (editar || act) {
-        g.strokeStyle = on ? '#F5A300' : editar ? '#F5A300' : 'rgba(14,58,95,.9)'; g.lineWidth = on ? u * 1.1 : u * 0.45;
-        g.beginPath(); g.moveTo(x1 - u * 0.6, y); g.lineTo(x2 + u * 0.6, y); g.stroke();
+        if (!ok || on) { g.strokeStyle = on ? '#F5A300' : editar ? '#F5A300' : 'rgba(14,58,95,.9)'; g.lineWidth = on ? u * 1.1 : u * 0.45; g.beginPath(); g.moveTo(x1 - u * 0.6, y); g.lineTo(x2 + u * 0.6, y); g.stroke(); }
         const nom = (x?.nn || [])[j] || `N${j + 1}`;
-        chip(x1 + 2.6 * u, y, nom.slice(0, 6), on ? '#F5A300' : '#fff', '#0E3A5F');
+        chip(x1 + 2.6 * u, y, (ok ? '✓' : '') + nom.slice(0, 6), on ? '#F5A300' : ok ? '#c8e6c9' : '#fff', '#0E3A5F');
         if (act && cnt[j + 1]) chip(x2 - 0.5 * u, y, String(cnt[j + 1]), '#D32F2F', '#fff', 1.6 * u);
       }
     });
@@ -826,11 +840,13 @@ function conectarCroquis(kid, prj) {
 
 function vistaGrilla() {
   const l = S.lev, n = S.nivel, cnt = conteoNiveles();
-  const chips = range(l.n).map(i => `<button class="chip ${i === n ? 'on' : ''}" data-n="${i}">${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
-  const cq = l.prj && l.sid ? bloqueCroquis(l.kid) : '';
+  const chips = range(l.n).map(i => `<button class="chip ${i === n ? 'on' : ''} ${inspN(l, i) ? 'ins' : ''}" data-n="${i}">${inspN(l, i) ? '<b class="chk">✓</b>' : ''}${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
+  const cq = l.prj && l.sid ? bloqueCroquis(l.kid) : '', ins = inspN(l, n);
+  const bIns = `<div class="insbar ${ins ? 'ok' : ''}">${ins ? `<span>${ic('lista', 20)} <b>${esc(nivelNom(n))} inspeccionado</b> por ${esc(ins.u)} · ${fecha(ins.t)}</span><button class="btn chico" id="bIns">Desmarcar</button>`
+    : `<span>${esc(nivelNom(n))} sin marcar · ${inspTxt(l)}</span><button class="btn chico pri" id="bIns">Marcar nivel como inspeccionado</button>`}</div>`;
   const bCq = cq ? `<button class="chip cqchip" id="bCq">${ic('caldera', 22)}Croquis</button>` : '';
   return cabNivel(`<b>Candados — ${esc(nivelNom(n))}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, bCq + chips) +
-    `<div class="${cq ? 'vgr' : ''}">${cq ? `<aside class="lado">${cq}</aside>` : ''}<div>
+    `<div class="${cq ? 'vgr' : ''}">${cq ? `<aside class="lado">${cq}</aside>` : ''}<div>${bIns}
     <div class="gwrap" id="gwrap">${comoImg(svgNivel(n))}</div>
     <div class="leyenda"><span class="ley"><span class="sw ind"></span>falta foto general o de detalle</span><span class="ley"><span class="sw foto"></span>con general y detalle</span>
       <span>${l.t > 16 ? 'Toca un panel para abrirlo en grande.' : 'Toca el candado entre dos tubos, o el nombre del panel para verlo en grande.'}</span></div></div></div>`;
@@ -843,6 +859,7 @@ function vistaLista() {
   const chips = `<button class="chip ${!f ? 'on' : ''}" data-f="0">Todos<i>${S.inds.size}</i></button>` +
     range(l.n).map(i => `<button class="chip ${i === f ? 'on' : ''}" data-f="${i}">${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
   return cabNivel(`<b>Indicaciones${f ? ' — ' + esc(nivelNom(f)) : ''}</b><span>${xs.length}${Object.keys(porTipo).length ? ' · ' + TIPOS.filter(t => porTipo[t]).map(t => `${t} ${porTipo[t]}`).join(' · ') : ''}</span>`, chips) +
+    (l.prj ? `<button class="btn pri resbtn" id="bResL">${ic('lista')}Resumen de hallazgos de la caldera</button>` : '') +
     (xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${completa(x) ? 'foto' : 'ind'}">${esc(ini(x))}</span>
       <div><b>${codigo(x)}</b> · ${esc(tipoTxt(x))}${x.nota ? `<br><span class="nt">${esc(x.nota)}</span>` : ''}
       <small>${esc(x.u)} · ${fecha(x.t)}${x.uu && x.uu !== x.u ? ` · editó ${esc(x.uu)}` : ''} · ${ic('camara', 14)} ${fotosTxt(x)}</small></div></button>`).join('')
@@ -888,6 +905,8 @@ function conectar() {
   $('#nLam').onclick = () => verLamina(S.vista === 'lista' && S.filtroN ? S.filtroN : S.nivel);
   $('#nExp').onclick = exportar;
   $('#nInf').onclick = menuInforme;
+  const bi = $('#bIns'); if (bi) bi.onclick = () => marcarInspeccion(S.nivel);
+  const br = $('#bResL'); if (br) br.onclick = () => resumenHallazgos(S.lev.prj, S.lev.kid);
   $('#nAju').onclick = ajustes;
 }
 
@@ -1233,6 +1252,67 @@ async function exportarZip() {
     toast('No se pudo armar el ZIP: ' + (e.code || e.message), 6000);
     const bb = $('#eZip'); if (bb) { bb.disabled = false; bb.querySelector('span').textContent = 'ZIP: fotos + láminas + planilla'; }
   }
+}
+
+// ---------- niveles inspeccionados ----------
+function marcarInspeccion(n) {
+  const l = S.lev, ya = inspN(l, n);
+  if (ya && !confirm(`¿Desmarcar ${nivelNom(n)} como inspeccionado? (lo marcó ${ya.u})`)) return;
+  const v = ya ? null : { u: S.nombre, t: Date.now() };
+  updateDoc(levRef(l.id), { ['insp.' + n]: v }).catch(errEsc);
+  S.lev = { ...l, insp: { ...(l.insp || {}), [n]: v } };
+  const i = S.levs.findIndex(x => x.id === l.id); if (i >= 0) S.levs[i] = S.lev;
+  toast(ya ? `${nivelNom(n)} desmarcado` : `${nivelNom(n)} marcado como inspeccionado`); render();
+}
+
+// ---------- resumen de hallazgos (evento completo o una caldera) ----------
+async function resumenHallazgos(prj, kid) {
+  const e = proy(prj); if (!e) return;
+  const ks = S.cat.calderas.filter(k => k.pid === e.pid && (!kid || k.id === kid));
+  hoja(`<div class="dcab"><h3>Resumen de hallazgos</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div><p class="nota">Cargando…</p>`);
+  const levs = S.levs.filter(l => l.prj === prj && (!kid || l.kid === kid)), inds = new Map();
+  try {
+    await Promise.all(levs.map(async l => {
+      const s = await getDocs(collection(db, 'levantamientos', l.id, 'indicaciones'));
+      inds.set(l.id, s.docs.map(d => ({ id: d.id, ...d.data() })).sort(ordenar));
+    }));
+  } catch (err) { toast('No se pudo cargar el resumen: ' + (err.code || err.message), 5000); }
+  if ($('#modal').hidden) return;
+  const todas = levs.flatMap(l => (inds.get(l.id) || []).map(x => ({ ...x, lev: l })));
+  const porTipo = t => todas.filter(x => x.k === t).length, faltan = todas.filter(x => !completa(x)).length;
+  let totN = 0, insN = 0;
+  ks.forEach(k => shDe(k.id).forEach(x => { const l = levEv(prj, x.id); totN += l?.n || x.n || 0; insN += nInsp(l); }));
+  const tile = (n, t, cls = '') => `<div class="tile ${cls}"><b>${n}</b><span>${t}</span></div>`;
+  let h = `<div class="dcab"><h3>Resumen de hallazgos</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
+    <p class="nota">${esc([cli(e.cid)?.nombre, pla(e.pid)?.nombre, e.nombre, kid ? cal(kid)?.nombre : 'todas las calderas'].filter(Boolean).join(' · '))}</p>
+    <div class="tiles">${tile(todas.length, 'hallazgos', todas.length ? 'rojo' : '')}${TIPOS.map(t => tile(porTipo(t), t)).join('')}
+    ${tile(`${insN}/${totN}`, 'niveles inspeccionados', insN && insN === totN ? 'verde' : '')}${tile(faltan, 'con fotos pendientes', faltan ? 'ambar' : '')}</div>`;
+  ks.forEach(k => {
+    const shs = shDe(k.id); if (!shs.length) return;
+    if (!kid) h += `<h4 class="rcal">${ic('caldera', 18)} ${esc(k.nombre)}</h4>`;
+    shs.forEach(x => {
+      const l = levEv(prj, x.id), xs = l ? inds.get(l.id) || [] : [], n = l?.n || x.n;
+      const cnt = {}; xs.forEach(y => cnt[y.n] = (cnt[y.n] || 0) + 1);
+      h += `<div class="rsh"><div class="rshcab"><b>${esc(x.nombre)}</b><span>${l ? `${nInsp(l)}/${n} inspeccionados · ${plural(xs.length, 'hallazgo', 'hallazgos')}` : 'sin iniciar'}</span></div>
+        <div class="rniv">${range(n).map(j => `<button class="rn ${inspN(l, j) ? 'ok' : ''} ${cnt[j] ? 'con' : ''}" data-sid="${x.id}" data-kid="${k.id}" data-n="${j}">${inspN(l, j) ? '✓ ' : ''}${esc((x.nn || [])[j - 1] || 'N' + j)}${cnt[j] ? `<i>${cnt[j]}</i>` : ''}</button>`).join('')}</div>
+        ${xs.map(y => `<button class="rh" data-lev="${l.id}" data-k="${y.id}"><span class="badge ${completa(y) ? 'foto' : 'ind'}">${esc(ini(y))}</span>
+          <div><b>${codigo(y)}</b> · ${esc(tipoTxt(y))}${y.nota ? `<br><span class="nt">${esc(y.nota)}</span>` : ''}<small>${esc(y.u)} · ${fecha(y.t)} · ${fotosTxt(y)}</small></div></button>`).join('')}</div>`;
+    });
+  });
+  if (!ks.some(k => shDe(k.id).length)) h += '<p class="vacio">No hay sobrecalentadores configurados.</p>';
+  const m = $('#modal'); m.firstChild.innerHTML = h; m.firstChild.classList.add('ancha');
+  m.querySelectorAll('[data-x]').forEach(b => b.onclick = cerrarModal);
+  // tocar un nivel → abrir ese sobrecalentador en ese nivel; tocar un hallazgo → abrir su ficha
+  m.querySelectorAll('.rn').forEach(b => b.onclick = () => {
+    const x = sobre(b.dataset.sid), k = cal(b.dataset.kid); cerrarModal();
+    if (S.lev) { S.unsubInds?.(); S.unsubInds = null; S.lev = null; }
+    S.nivelPend = +b.dataset.n; abrirSobre(e, k, x);
+  });
+  m.querySelectorAll('.rh').forEach(b => b.onclick = () => {
+    const l = S.levs.find(v => v.id === b.dataset.lev), y = (inds.get(b.dataset.lev) || []).find(v => v.id === b.dataset.k); if (!l || !y) return;
+    cerrarModal(); if (S.lev) { S.unsubInds?.(); S.unsubInds = null; S.lev = null; }
+    S.nivelPend = y.n; abrirLev(l.id); S.inds.set(y.id, y); render(); detalle(y.id);
+  });
 }
 
 // ---------- informe PDF / Word (como el de BoilerImage, con foto general y de detalle) ----------
