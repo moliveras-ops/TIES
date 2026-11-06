@@ -16,11 +16,20 @@ export async function informePDF(c) {
   const W = 210, H = 297, M = 14, ANCHO = W - 2 * M, FIN = H - 16;
   let hoja = 1, y = 0;
   const color = (k, a) => pdf[k](a[0], a[1], a[2]);
+  // logos arriba a la derecha (el último, la empresa, en la esquina)
+  const LH = 12, logos = (c.logos || []).map(im => { let h = LH, w = im.w / im.h * h; if (w > 34) { w = 34; h = w * im.h / im.w; } return { ...im, lw: w, lh: h }; });
+  const anchoLogos = logos.reduce((a, l) => a + l.lw + 4, 0), ANCHO_T = ANCHO - anchoLogos - 3;
   const cab = t => {
-    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); while (pdf.getTextWidth(t) > ANCHO && pdf.getFontSize() > 10) pdf.setFontSize(pdf.getFontSize() - 0.5);
-    color('setTextColor', AZUL); pdf.text(t, M, 18);
-    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); color('setTextColor', GRIS); pdf.text(pdf.splitTextToSize(c.subtitulo, ANCHO)[0], M, 24);
-    color('setDrawColor', AZUL); pdf.setLineWidth(0.6); pdf.line(M, 27, W - M, 27); y = 35;
+    let x = W - M;
+    [...logos].reverse().forEach(l => { x -= l.lw; pdf.addImage(l.d, l.d.startsWith('data:image/png') ? 'PNG' : 'JPEG', x, 9 + (LH - l.lh) / 2, l.lw, l.lh, undefined, 'FAST'); x -= 4; });
+    // título en una línea (se achica) o en dos; subtítulo hasta dos líneas
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); while (pdf.getTextWidth(t) > ANCHO_T && pdf.getFontSize() > 11) pdf.setFontSize(pdf.getFontSize() - 0.5);
+    const lt = pdf.splitTextToSize(t, ANCHO_T).slice(0, 2); color('setTextColor', AZUL); pdf.text(lt, M, 16, { lineHeightFactor: 1.1 });
+    let yy = 16 + (lt.length - 1) * pdf.getFontSize() * 0.39 + 5.5;
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); color('setTextColor', GRIS);
+    const ls = pdf.splitTextToSize(c.subtitulo, ANCHO_T).slice(0, 2); pdf.text(ls, M, yy, { lineHeightFactor: 1.15 });
+    yy = Math.max(yy + (ls.length - 1) * 3.4 + 3, 9 + LH + 3);
+    color('setDrawColor', AZUL); pdf.setLineWidth(0.6); pdf.line(M, yy, W - M, yy); y = yy + 8;
   };
   const pie = () => { pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); color('setTextColor', GRIS); pdf.text(`${c.pie} · hoja ${hoja}`, W - M, H - 8, { align: 'right' }); };
   const nueva = t => { pie(); pdf.addPage(); hoja++; cab(t); };
@@ -120,8 +129,14 @@ export async function informeWord(c) {
 <pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
 <pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
   };
-  const cab = t => par(run(t, { b: true, sz: 32, col: AZUL }), { despues: 0 }) + par(run(c.subtitulo, { sz: 18, col: GRIS }), { borde: true, despues: 200 });
   const twip = mm => Math.round(mm * 56.7);
+  const logos = c.logos || [], cab = t => {
+    const izq = par(run(t, { b: true, sz: 32, col: AZUL }), { despues: 0 }) + par(run(c.subtitulo, { sz: 18, col: GRIS }), { despues: 0 });
+    if (!logos.length) return par(run(t, { b: true, sz: 32, col: AZUL }), { despues: 0 }) + par(run(c.subtitulo, { sz: 18, col: GRIS }), { borde: true, despues: 200 });
+    const der = par(logos.map((l, i) => (i ? run('  ', {}) : '') + imagen(l, 30, 12)).join(''), { al: 'right', despues: 0 });
+    return `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/><w:bottom w:val="single" w:sz="10" w:color="${hex(AZUL)}"/></w:tblBorders><w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar></w:tblPr>
+<w:tblGrid><w:gridCol w:w="${twip(110)}"/><w:gridCol w:w="${twip(72)}"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="${twip(110)}" w:type="dxa"/><w:vAlign w:val="bottom"/></w:tcPr>${izq}</w:tc><w:tc><w:tcPr><w:tcW w:w="${twip(72)}" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>${der}</w:tc></w:tr></w:tbl>${par('', { despues: 120 })}`;
+  };
 
   let b = cab(c.titulo);
   b += par(run(c.resumen, { sz: 21 })) + par(run(c.conteo, { b: true, sz: 20 }), { despues: 160 });

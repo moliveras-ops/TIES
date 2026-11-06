@@ -155,3 +155,7 @@ nav.abajo button{font-size:13px}
 .rh{display:flex;gap:10px;width:100%;text-align:left;background:none;border:0;border-top:1px solid #eef1f5;padding:8px 2px;font:inherit;color:inherit;align-items:flex-start}
 .rh b{color:var(--azul)}.rh small{display:block;color:#5b6b7b;font-size:12px}.rh .nt{font-size:14px}
 .resbtn{margin:0 0 12px}
+.logoprev{background:#fff;border:1px solid #d5dde6;border-radius:12px;padding:10px;text-align:center}.logoprev img{max-height:70px;max-width:100%}
+.version{display:grid;gap:8px;margin:10px 0}.version label{display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid #d5dde6;border-radius:12px;padding:10px;margin:0;font-weight:400}
+.version input{width:22px;height:22px;margin:2px 0 0;flex:none}.version b{display:block;color:var(--azul)}.version small{color:#5b6b7b;font-size:13px}
+.version label:has(input:checked){border-color:var(--ambar);box-shadow:0 0 0 2px #ffe0a3}

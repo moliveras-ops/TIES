@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.0.1';
+const VERSION = '2.1';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -97,7 +97,7 @@ const S = {
   uid: null, nombre: ls.get('ties_nombre', ''), levs: [], lev: null, levId: ls.get('ties_lev', null),
   nivel: 1, inds: new Map(), pend: 0, vista: 'grilla', filtroN: 0, primera: true,
   detalle: null, fotos: [], notaSucia: false, camK: null, ingresando: false, instalar: null, panel: null,
-  cat: { clientes: [], plantas: [], calderas: [], sobrecalentadores: [], proyectos: [] }, ruta: ls.get('ties_ruta', null) || {}
+  cat: { clientes: [], plantas: [], calderas: [], sobrecalentadores: [], proyectos: [], ajustes: [] }, ruta: ls.get('ties_ruta', null) || {}
 };
 $('#atras').innerHTML = ic('atras', 28);
 const altoCab = () => document.documentElement.style.setProperty('--hh', $('header').offsetHeight + 'px');
@@ -202,7 +202,7 @@ function detenerTodo() {
 // Cada (proyecto, sobrecalentador) es un documento de "levantamientos" con prj y sid.
 const catCol = c => collection(db, 'levantamientos', '_cat', c);
 const catRef = (c, id) => doc(db, 'levantamientos', '_cat', c, id);
-const CAT = ['clientes', 'plantas', 'calderas', 'sobrecalentadores', 'proyectos'];
+const CAT = ['clientes', 'plantas', 'calderas', 'sobrecalentadores', 'proyectos', 'ajustes'];
 const CLIENTES_BASE = [{ id: 'arauco', nombre: 'Arauco' }, { id: 'cmpc', nombre: 'CMPC' }];
 const porNombre = (a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es', { numeric: true });
 const busca = c => id => S.cat[c].find(x => x.id === id);
@@ -314,8 +314,10 @@ function vistaCliente() {
     `<h3>Plantas</h3>` +
     (ps.map(p => itemNav(`data-pid="${p.id}"`, 'planta', esc(p.nombre), plural(S.cat.calderas.filter(k => k.pid === p.id).length, 'caldera', 'calderas'))).join('')
       || '<p class="vacio">Aún no hay plantas. Agrega la primera.</p>') +
-    `<button class="btn pri" id="bPla">${ic('agregar')}Nueva planta</button>` + acciones();
+    `<button class="btn pri" id="bPla">${ic('agregar')}Nueva planta</button>` + bloqueLogo('Logo del cliente', c.logo, 'bLogo') + acciones();
   app.querySelectorAll('[data-pid]').forEach(b => b.onclick = () => ir({ cid: c.id, pid: b.dataset.pid }));
+  $('#bLogo').onclick = () => cargarLogo('cliente', c.id);
+  if ($('#bLogoDel')) $('#bLogoDel').onclick = () => { if (confirm('¿Quitar el logo del cliente?')) { updateDoc(catRef('clientes', c.id), { logo: null }).catch(errEsc); c.logo = null; pantalla(); } };
   $('#bPla').onclick = () => formNombre('Nueva planta · ' + c.nombre, '', 'Ej. Valdivia', nombre => ir({ cid: c.id, pid: crearCat('plantas', { nombre, cid: c.id }) }));
   $('#bRen').onclick = () => formNombre('Renombrar cliente', c.nombre, '', nombre => updateDoc(catRef('clientes', c.id), { nombre }).catch(errEsc));
   $('#bDel').onclick = () => {
@@ -965,6 +967,19 @@ function abrirCamara(k, galeria, tp = 'general') {
 }
 
 $('#cam').onchange = $('#gal').onchange = async e => {
+  if (S.logoDest) {
+    const dst = S.logoDest, f = e.target.files[0]; S.logoDest = null; e.target.value = '';
+    if (!f) return;
+    try {
+      const d = await procesarLogo(f);
+      if (dst.tipo === 'empresa') {
+        setDoc(catRef('ajustes', 'empresa'), { logo: d, c: Date.now(), u: S.nombre }).catch(errEsc);
+        const a = S.cat.ajustes.find(x => x.id === 'empresa'); if (a) a.logo = d; else S.cat.ajustes.push({ id: 'empresa', logo: d });
+      } else { updateDoc(catRef('clientes', dst.id), { logo: d }).catch(errEsc); const c = cli(dst.id); if (c) c.logo = d; }
+      toast('Logo guardado'); if (!$('#modal').hidden && dst.tipo === 'empresa') menu(); else if (!S.lev) pantalla();
+    } catch (err) { toast('No se pudo procesar el logo: ' + err.message, 5000); }
+    return;
+  }
   if (S.croquisK) {
     const kid = S.croquisK, f = e.target.files[0]; S.croquisK = null; e.target.value = '';
     if (!f) return;
@@ -1254,6 +1269,22 @@ async function exportarZip() {
   }
 }
 
+// ---------- logos (empresa en el menú ⋮, cliente en su pantalla) ----------
+const logoEmpresa = () => S.cat.ajustes.find(x => x.id === 'empresa')?.logo || null;
+function cargarLogo(tipo, id) { S.camK = null; S.croquisK = null; S.logoDest = { tipo, id }; const i = $('#gal'); i.value = ''; i.click(); }
+async function procesarLogo(file) {
+  let src;
+  try { src = await createImageBitmap(file); }
+  catch { src = await cargarImg(URL.createObjectURL(file)); }
+  const e = Math.min(1, 600 / Math.max(src.width, src.height)), w = Math.round(src.width * e), h = Math.round(src.height * e);
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.getContext('2d').drawImage(src, 0, 0, w, h);
+  let d = cv.toDataURL('image/png');   // PNG conserva el fondo transparente
+  if (d.length > 400000) { const c2 = document.createElement('canvas'); c2.width = w; c2.height = h; const g = c2.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(cv, 0, 0); d = c2.toDataURL('image/jpeg', 0.9); }
+  return d;
+}
+const bloqueLogo = (titulo, logo, id) => `<h3>${titulo}</h3>${logo ? `<div class="logoprev"><img src="${logo}" alt=""></div>` : '<p class="nota">Aparece arriba a la derecha en los informes.</p>'}
+  <div class="acciones"><button class="btn" id="${id}">${ic('galeria')}${logo ? 'Cambiar logo' : 'Cargar logo'}</button>${logo ? `<button class="btn peligro" id="${id}Del">${ic('borrar')}Quitar</button>` : ''}</div>`;
+
 // ---------- niveles inspeccionados ----------
 function marcarInspeccion(n) {
   const l = S.lev, ya = inspN(l, n);
@@ -1318,16 +1349,29 @@ async function resumenHallazgos(prj, kid) {
 // ---------- informe PDF / Word (como el de BoilerImage, con foto general y de detalle) ----------
 const medir = d => cargarImg(d).then(i => ({ d, w: i.naturalWidth, h: i.naturalHeight }));
 
-async function datosInforme(avance) {
+// quita la franja del sello (código, usuario y fecha) de la parte de abajo de la foto, para la versión del cliente
+async function sinSello(f) {
+  const im = await cargarImg(f.d), w = im.naturalWidth, h = im.naturalHeight;
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const g = cv.getContext('2d'); g.drawImage(im, 0, 0);
+  const px = g.getImageData(0, 0, 4, h).data, azul = y => { const i = (y * 4 + 1) * 4; return Math.abs(px[i] - 14) < 22 && Math.abs(px[i + 1] - 58) < 22 && Math.abs(px[i + 2] - 95) < 22; };
+  let y = h - 1; while (y > h * 0.75 && azul(y)) y--;
+  const banda = h - 1 - y; if (banda < 30) return { d: f.d, w, h };
+  const c2 = document.createElement('canvas'); c2.width = w; c2.height = h - banda; c2.getContext('2d').drawImage(im, 0, 0);
+  return { d: c2.toDataURL('image/jpeg', 0.85), w, h: h - banda };
+}
+
+async function datosInforme(avance, paraCliente) {
   const l = S.lev, xs = [...S.inds.values()].sort(ordenar), cnt = conteoNiveles();
   const c = {
     titulo: 'Inspección de candados',
-    subtitulo: `${nombreCompleto(l)} · ${fecha(Date.now()).slice(0, 10)}`,
+    subtitulo: paraCliente ? nombreCompleto(l) : `${nombreCompleto(l)} · ${fecha(Date.now()).slice(0, 10)}`,
     resumen: `${l.n} niveles · ${l.p} paneles · ${l.t} tubos por panel (${l.t - 1} candados) · ${xs.length} indicación(es)`,
     conteo: range(l.n).map(i => `${chipNom(i)}: ${cnt[i] || 0}`).join('    '),
     filas: xs.map(x => [codigo(x), chipNom(x.n), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || '']),
-    niveles: [], fichas: [], pie: 'TIES · Informe de candados'
+    niveles: [], fichas: [], pie: paraCliente ? 'Informe de inspección de candados' : 'TIES · Informe de candados · uso interno'
   };
+  // logos: cliente y empresa (la empresa queda en la esquina superior derecha)
+  c.logos = (await Promise.all([cli(l.cid)?.logo, logoEmpresa()].filter(Boolean).map(medir))).filter(Boolean);
   // croquis de la caldera con el sobrecalentador marcado
   const k = cal(l.kid);
   if (k && (k.img || shDe(k.id).length)) {
@@ -1360,8 +1404,8 @@ async function datosInforme(avance) {
     const g = fs.find(f => tipoFoto(f) === 'general'), d = fs.find(f => tipoFoto(f) === 'detalle');
     c.fichas.push({
       titulo: `Nivel ${pad(x.n)}${(nombresNiv(l)[x.n - 1]) ? ' (' + nombresNiv(l)[x.n - 1] + ')' : ''}, Panel N°${pad(x.p)}, Tubos N°${pad(x.c)}-${pad(x.c + 1)}  ·  ${tipoTxt(x)}`,
-      ubic: `Código ${codigo(x)} · candado entre los tubos ${x.c} y ${x.c + 1} · registró ${x.u}, ${fecha(x.t)}`,
-      general: g ? await medir(g.d) : null, detalle: d ? await medir(d.d) : null, obs: x.nota || ''
+      ubic: `Código ${codigo(x)} · candado entre los tubos ${x.c} y ${x.c + 1}` + (paraCliente ? '' : ` · registró ${x.u}, ${fecha(x.t)}`),
+      general: g ? await (paraCliente ? sinSello(g) : medir(g.d)) : null, detalle: d ? await (paraCliente ? sinSello(d) : medir(d.d)) : null, obs: x.nota || ''
     });
   }
   return c;
@@ -1372,10 +1416,14 @@ function menuInforme() {
   hoja(`<h3>Informe de candados</h3>
     <p class="nota">${esc(nombreCompleto(S.lev))}<br>Resumen con la tabla de indicaciones, una hoja por nivel con su grilla y el detalle de cada candado con foto general, foto de detalle y observaciones.</p>
     ${faltan ? `<p class="aviso">${ic('camara', 18)} ${plural(faltan, 'indicación no tiene', 'indicaciones no tienen')} las dos fotos; en el informe aparecerá "Sin foto".</p>` : ''}
+    <div class="version"><label><input type="radio" name="iVer" value="cliente" ${ls.get('ties_inf_ver', 'cliente') === 'cliente' ? 'checked' : ''}><span><b>Para el cliente</b><small>Sin fechas del levantamiento ni quién lo registró; fotos sin sello</small></span></label>
+      <label><input type="radio" name="iVer" value="interno" ${ls.get('ties_inf_ver', 'cliente') === 'interno' ? 'checked' : ''}><span><b>Interno</b><small>Con fecha, responsables y fotos con sello</small></span></label></div>
+    ${!logoEmpresa() || !cli(S.lev.cid)?.logo ? `<p class="nota">Logos: ${!logoEmpresa() ? 'carga el de la empresa en el menú ⋮' : ''}${!logoEmpresa() && !cli(S.lev.cid)?.logo ? ' y ' : ''}${!cli(S.lev.cid)?.logo ? 'el del cliente en la pantalla del cliente' : ''}.</p>` : ''}
     <button class="btn pri" id="iPdf">${ic('informe')}<span>Informe PDF</span></button>
     <button class="btn" id="iDoc">${ic('informe')}<span>Informe Word (.docx)</span></button>
     <p class="nota" id="iAv"></p>
     <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
+  $('#modal').querySelectorAll('[name="iVer"]').forEach(r => r.onchange = () => ls.set('ties_inf_ver', r.value));
   $('#iPdf').onclick = () => generarInforme('pdf');
   $('#iDoc').onclick = () => generarInforme('docx');
 }
@@ -1385,12 +1433,13 @@ async function generarInforme(tipo) {
   const av = t => { const e = $('#iAv'); if (e) e.textContent = t; };
   try {
     av('Preparando…');
-    const c = await datosInforme(av);
+    const cliente = ($('#modal [name="iVer"]:checked')?.value || 'cliente') === 'cliente';
+    const c = await datosInforme(av, cliente);
     av(tipo === 'pdf' ? 'Armando el PDF…' : 'Armando el Word…');
     const m = await import('./informe.js');
     const blob = tipo === 'pdf' ? await m.informePDF(c) : await m.informeWord(c);
-    const nombre = `Informe candados ${limpio(nombreCompleto(S.lev))} ${hoy()}.${tipo}`;
-    hoja(`<h3>Informe listo</h3><p>${tipo === 'pdf' ? 'PDF' : 'Word'} · ${c.fichas.length} indicación(es) · ${(blob.size / 1048576).toFixed(1)} MB</p>
+    const nombre = `Informe candados ${limpio(nombreCompleto(S.lev))}${cliente ? '' : ' INTERNO ' + hoy()}.${tipo}`;
+    hoja(`<h3>Informe listo</h3><p>${cliente ? 'Para el cliente' : 'Interno'} · ${tipo === 'pdf' ? 'PDF' : 'Word'} · ${c.fichas.length} indicación(es) · ${(blob.size / 1048576).toFixed(1)} MB</p>
       <button class="btn pri" id="zSh">${ic('compartir')}Compartir</button><button class="btn" id="zDes">${ic('bajar')}Guardar en Descargas</button>
       <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
     $('#zSh').onclick = () => compartir(blob, nombre);
@@ -1463,6 +1512,7 @@ function menu() {
     <button class="btn" id="mNom">${ic('editar')}Cambiar mi nombre</button>
     ${S.instalar ? `<button class="btn" id="mInst">${ic('instalar')}Instalar TIES en el teléfono</button>` : ''}
     <button class="btn" id="mSal">${ic('salir')}Cerrar sesión</button>
+    ${bloqueLogo('Logo de la empresa', logoEmpresa(), 'mLogo')}
     <p class="nota">TIES v${VERSION}. Los cambios se guardan en el teléfono y se suben solos cuando hay señal. Cada indicación registra quién la marcó y quién la cambió por última vez.</p>
     <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
   $('#mNom').onclick = () => {
@@ -1471,6 +1521,8 @@ function menu() {
     updateDoc(doc(db, 'miembros', S.uid), { nombre: S.nombre, t: Date.now() }).catch(errEsc);
     cerrarModal(); toast('Nombre actualizado');
   };
+  $('#mLogo').onclick = () => cargarLogo('empresa');
+  if ($('#mLogoDel')) $('#mLogoDel').onclick = () => { if (!confirm('¿Quitar el logo de la empresa?')) return; setDoc(catRef('ajustes', 'empresa'), { logo: null, c: Date.now(), u: S.nombre }).catch(errEsc); const a = S.cat.ajustes.find(x => x.id === 'empresa'); if (a) a.logo = null; menu(); };
   if ($('#mInst')) $('#mInst').onclick = async () => { S.instalar.prompt(); await S.instalar.userChoice; S.instalar = null; cerrarModal(); };
   $('#mSal').onclick = async () => {
     if (S.pend && !confirm(`Hay ${S.pend} cambios sin subir. Si cierras sesión se pierden. ¿Cerrar igual?`)) return;
