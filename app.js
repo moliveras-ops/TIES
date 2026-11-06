@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.3';
+const VERSION = '2.4';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -189,9 +189,28 @@ function pantallaIngreso(err = '') {
   };
 }
 
+// hallazgos por nivel de las otras grillas de la caldera en el evento (para pintar el croquis en rojo)
+S.cntLev = {}; S.subsCnt = {};
+function seguirConteos(prj, kid) {
+  const quiero = new Set(S.levs.filter(l => l.prj === prj && l.kid === kid).map(l => l.id));
+  Object.keys(S.subsCnt).forEach(id => { if (!quiero.has(id)) { S.subsCnt[id](); delete S.subsCnt[id]; } });
+  quiero.forEach(id => {
+    if (S.subsCnt[id]) return;
+    S.subsCnt[id] = onSnapshot(collection(db, 'levantamientos', id, 'indicaciones'), snap => {
+      const c = {}; snap.docs.forEach(d => { const n = d.data().n; c[n] = (c[n] || 0) + 1; });
+      if (JSON.stringify(c) === JSON.stringify(S.cntLev[id] || {})) return;
+      S.cntLev[id] = c;
+      if (S.lev) { if (S.lev.id !== id) render(); } else if (S.ruta.kid === kid) pantalla();
+    }, () => { });
+  });
+}
+// conteo por nivel del sobrecalentador sid en el evento (la grilla abierta usa sus datos en vivo)
+const conteoSH = (prj, sid) => { const l = levEv(prj, sid); return !l ? {} : S.lev && l.id === S.lev.id ? conteoNiveles() : S.cntLev[l.id] || {}; };
+
 function detenerTodo() {
   S.unsubLevs?.(); S.unsubLevs = null;
   S.unsubCat?.forEach(f => f()); S.unsubCat = null;
+  Object.values(S.subsCnt || {}).forEach(f => f()); S.subsCnt = {};
   S.unsubInds?.(); S.unsubInds = null;
   cerrarModal();
 }
@@ -634,7 +653,7 @@ function svgCroquis(kid, sidAct, nivAct, cnt = {}) {
   const shs = shDe(kid), { m, w, g, top, h } = CQ, W = m * 2 + shs.length * (w + g) - g, H = top + h + 22;
   let s = `<line x1="0" y1="${top}" x2="${W}" y2="${top}" stroke="#7b8fa4" stroke-width="2"/>`;
   shs.forEach((x, i) => {
-    const x0 = m + i * (w + g), act = x.id === sidAct, n = x.n || 1, paso = h / n, lv = levEv(S.lev?.prj || S.ruta.prj, x.id);
+    const prj = S.lev?.prj || S.ruta.prj, x0 = m + i * (w + g), act = x.id === sidAct, n = x.n || 1, paso = h / n, lv = levEv(prj, x.id), cn = act ? cnt : conteoSH(prj, x.id);
     const lab = partirTxt(abrevSH(x.nombre));
     s += `<g data-col="${i}"><rect x="${x0}" y="2" width="${w}" height="${top - 6}" rx="4" fill="${act ? '#F5A300' : '#dfe6ee'}"/>` +
       lab.map((t, j) => `<text x="${x0 + w / 2}" y="${(top - 4) / 2 + (j - (lab.length - 1) / 2) * 10}" class="cl">${esc(t)}</text>`).join('') +
@@ -643,13 +662,14 @@ function svgCroquis(kid, sidAct, nivAct, cnt = {}) {
     for (let k = 0; k < 3; k++) s += `<path d="M${x0 + 5 + k * 14} ${top + h} a6 6 0 0 0 12 0" fill="none" stroke="#8a96a3" stroke-width="2"/>`;
     for (let j = 1; j <= n; j++) {
       const y = top + (j - 0.5) * paso, on = act && j === nivAct;
-      const ok = inspN(lv, j);
-      s += `<line x1="${x0 - 3}" y1="${y}" x2="${x0 + w + 3}" y2="${y}" stroke="${on ? '#F5A300' : ok ? '#2e7d32' : '#0b2a5c'}" stroke-width="${on ? 5 : ok ? 4 : 2.2}"/>`;
-      if (ok && !act) s += `<circle cx="${x0 + w / 2}" cy="${y}" r="5" fill="#2e7d32"/><path d="M${x0 + w / 2 - 2.5} ${y} l1.8 1.8 l3.2 -3.4" stroke="#fff" stroke-width="1.4" fill="none"/>`;
+      const ok = inspN(lv, j), hz = cn[j] || 0;
+      s += `<line x1="${x0 - 3}" y1="${y}" x2="${x0 + w + 3}" y2="${y}" stroke="${on ? '#F5A300' : hz ? '#D32F2F' : ok ? '#2e7d32' : '#0b2a5c'}" stroke-width="${on ? 5 : hz || ok ? 4 : 2.2}"/>`;
+      if (!act && hz) s += `<circle cx="${x0 + w / 2}" cy="${y}" r="6.5" fill="#D32F2F"/><text x="${x0 + w / 2}" y="${y}" class="cc">${hz}</text>` + (ok ? `<circle cx="${x0 + 6}" cy="${y}" r="4.5" fill="#2e7d32"/><path d="M${x0 + 4} ${y} l1.4 1.4 l2.6 -2.8" stroke="#fff" stroke-width="1.2" fill="none"/>` : '');
+      else if (ok && !act) s += `<circle cx="${x0 + w / 2}" cy="${y}" r="5" fill="#2e7d32"/><path d="M${x0 + w / 2 - 2.5} ${y} l1.8 1.8 l3.2 -3.4" stroke="#fff" stroke-width="1.4" fill="none"/>`;
       if (act) {
         const t = ((x.nn || [])[j - 1] || 'N' + j).slice(0, 7);
         s += `<rect x="${x0 + 4}" y="${y - 7}" width="${w - 8}" height="14" rx="3" fill="${on ? '#F5A300' : ok ? '#c8e6c9' : '#fff'}" stroke="${ok ? '#2e7d32' : 'none'}"/><text x="${x0 + w / 2}" y="${y}" class="cn">${esc(ok ? '✓' + t : t)}</text>`;
-        if (cnt[j]) s += `<circle cx="${x0 + w + 2}" cy="${y}" r="7" fill="#D32F2F"/><text x="${x0 + w + 2}" y="${y}" class="cc">${cnt[j]}</text>`;
+        if (hz) s += `<circle cx="${x0 + w + 2}" cy="${y}" r="7" fill="#D32F2F"/><text x="${x0 + w + 2}" y="${y}" class="cc">${hz}</text>`;
       }
     }
     s += '</g>';
@@ -726,7 +746,8 @@ const cacheMapa = new Map();
 async function imagenMapa(k, { sid, nivel, cnt = {}, editar, mapa } = {}) {
   const m = mapa || k.cqmap; if (!k.img || !m) return null;
   const prj = S.lev?.prj || S.ruta.prj, ins = editar ? [] : m.cols.map(c => levEv(prj, c.sid)?.insp || {});
-  const clave = JSON.stringify([k.id, k.img.length, m, sid, nivel, cnt, editar, ins]);
+  const cnts = editar ? [] : m.cols.map(c => c.sid && c.sid === sid ? cnt : conteoSH(prj, c.sid));
+  const clave = JSON.stringify([k.id, k.img.length, m, sid, nivel, cnts, editar, ins]);
   if (cacheMapa.has(clave)) return cacheMapa.get(clave);
   const im = await cargarImg(k.img), e = Math.min(1, 1400 / Math.max(im.naturalWidth, im.naturalHeight));
   const W = Math.round(im.naturalWidth * e), H = Math.round(im.naturalHeight * e), u = Math.max(W, H) / 100;
@@ -745,16 +766,19 @@ async function imagenMapa(k, { sid, nivel, cnt = {}, editar, mapa } = {}) {
     }
     if (act) { g.strokeStyle = '#F5A300'; g.lineWidth = u * 0.6; g.strokeRect(x1 - u, 0.5 * u, x2 - x1 + 2 * u, H - u); }
     c.ys.forEach((yy, j) => {
-      const y = yy * H, on = act && nivel === j + 1, ok = !editar && ins[ci]?.[j + 1];
-      if (ok && !on) {
-        g.strokeStyle = '#2e7d32'; g.lineWidth = u * 0.9; g.beginPath(); g.moveTo(x1 - u * 0.6, y); g.lineTo(x2 + u * 0.6, y); g.stroke();
-        if (!act) chip((x1 + x2) / 2, y, '✓', '#2e7d32', '#fff', 1.5 * u);
+      const y = yy * H, on = act && nivel === j + 1, ok = !editar && ins[ci]?.[j + 1], hz = editar ? 0 : cnts[ci]?.[j + 1] || 0;
+      if ((ok || hz) && !on) {
+        g.strokeStyle = hz ? '#D32F2F' : '#2e7d32'; g.lineWidth = u * 0.9; g.beginPath(); g.moveTo(x1 - u * 0.6, y); g.lineTo(x2 + u * 0.6, y); g.stroke();
+        if (!act) {
+          if (hz) { chip((x1 + x2) / 2, y, String(hz), '#D32F2F', '#fff', 1.6 * u); if (ok) chip(x1 + 1.2 * u, y, '✓', '#2e7d32', '#fff', 1.3 * u); }
+          else chip((x1 + x2) / 2, y, '✓', '#2e7d32', '#fff', 1.5 * u);
+        }
       }
       if (editar || act) {
-        if (!ok || on) { g.strokeStyle = on ? '#F5A300' : editar ? '#F5A300' : 'rgba(14,58,95,.9)'; g.lineWidth = on ? u * 1.1 : u * 0.45; g.beginPath(); g.moveTo(x1 - u * 0.6, y); g.lineTo(x2 + u * 0.6, y); g.stroke(); }
+        if ((!ok && !hz) || on) { g.strokeStyle = on ? '#F5A300' : editar ? '#F5A300' : 'rgba(14,58,95,.9)'; g.lineWidth = on ? u * 1.1 : u * 0.45; g.beginPath(); g.moveTo(x1 - u * 0.6, y); g.lineTo(x2 + u * 0.6, y); g.stroke(); }
         const nom = (x?.nn || [])[j] || `N${j + 1}`;
         chip(x1 + 2.6 * u, y, (ok ? '✓' : '') + nom.slice(0, 6), on ? '#F5A300' : ok ? '#c8e6c9' : '#fff', '#0E3A5F');
-        if (act && cnt[j + 1]) chip(x2 - 0.5 * u, y, String(cnt[j + 1]), '#D32F2F', '#fff', 1.6 * u);
+        if (act && hz) chip(x2 - 0.5 * u, y, String(hz), '#D32F2F', '#fff', 1.6 * u);
       }
     });
   });
@@ -835,6 +859,7 @@ function bloqueCroquis(kid) {
 }
 function cargarCroquis(kid) { S.camK = null; S.croquisK = kid; const i = $('#gal'); i.value = ''; i.click(); }
 function conectarCroquis(kid, prj) {
+  if (prj) seguirConteos(prj, kid);
   app.querySelectorAll('#cq').forEach(c => c.onclick = e => tocarCroquis(e, c, kid, prj));
   const b = $('#cqImg'); if (b) b.onclick = () => visor(cal(kid).img, { titulo: 'Croquis · ' + cal(kid).nombre, nombre: `Croquis ${limpio(cal(kid).nombre)}.jpg` });
   const c = $('#cqCarga'); if (c) c.onclick = () => cargarCroquis(kid);
@@ -1406,6 +1431,7 @@ async function datosInforme(avance, paraCliente) {
     await Promise.all(levs.map(async v => inds.set(v.id, v.id === l.id ? xs
       : (await getDocs(collection(db, 'levantamientos', v.id, 'indicaciones'))).docs.map(d => ({ id: d.id, ...d.data() })).sort(ordenar))));
     const todas = [...inds.values()].flat(), shs = shDe(l.kid);
+    inds.forEach((ys, id) => { if (id !== l.id) { const c = {}; ys.forEach(y => c[y.n] = (c[y.n] || 0) + 1); S.cntLev[id] = c; } });
     let totN = 0, insN = 0;
     shs.forEach(x => { const v = levEv(l.prj, x.id); totN += v?.n || x.n || 0; insN += nInsp(v); });
     const tiles = [[todas.length, 'hallazgos'], ...TIPOS.map(t => [todas.filter(y => y.k === t).length, t]), [`${insN}/${totN}`, 'niveles inspeccionados']];
