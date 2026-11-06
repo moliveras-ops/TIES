@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.4';
+const VERSION = '2.5';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -447,8 +447,9 @@ function vistaEventoCaldera() {
       return itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), l ? `${inspTxt(l)} · iniciado por ${esc(l.u)}` : `${dimTxt(x)} · sin iniciar`);
     }).join('') || '<p class="vacio">Esta caldera no tiene sobrecalentadores.</p>') +
     huerfanos.map(l => itemNav(`data-id="${l.id}"`, 'grilla', esc(l.nombre), 'Sobrecalentador eliminado de la caldera')).join('') +
-    `<button class="btn pri" id="bRes">${ic('lista')}Resumen de hallazgos</button><button class="btn" id="bCfg">${ic('ajustes')}Configurar sobrecalentadores</button></div></div>`;
+    `<button class="btn pri" id="bRes">${ic('lista')}Resumen de hallazgos</button><button class="btn" id="bInfC">${ic('informe')}Informe de la caldera completa</button><button class="btn" id="bCfg">${ic('ajustes')}Configurar sobrecalentadores</button></div></div>`;
   $('#bRes').onclick = () => resumenHallazgos(e.id, k.id);
+  $('#bInfC').onclick = () => menuInforme(e.id, k.id);
   conectarCroquis(k.id, e.id);
   app.querySelectorAll('[data-sid]').forEach(b => b.onclick = () => abrirSobre(e, k, sobre(b.dataset.sid)));
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
@@ -594,15 +595,18 @@ const SVG_CSS = '.tb{fill:#dde6ef;stroke:#1f3a57;stroke-width:1.6}.tbi{fill:#fff
 const comoImg = (svg, estilo = '') => `<img class="dib" alt="" draggable="false" style="${estilo}" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}">`;
 const dibujo = el => el?.querySelector('img.dib, svg');
 
+// grilla que se dibuja: la abierta, o la que fije S.gctx mientras se arma un informe (el dibujo es síncrono)
+const GL = () => S.gctx?.l || S.lev, GI = () => S.gctx?.inds || S.inds;
+
 function filaSVG(n, p, y, L) {
-  const { u, rh } = G, t = S.lev.t, my = y + rh / 2;
+  const { u, rh } = G, t = GL().t, my = y + rh / 2;
   let s = '';
   for (let i = 1; i <= t; i++) {
     const cx = L + (i - 0.5) * u;
     s += `<rect x="${cx - 5.5}" y="${y + 3}" width="11" height="${rh - 6}" rx="5.5" class="tb"/><rect x="${cx - 1.5}" y="${y + 8}" width="3" height="${rh - 16}" rx="1.5" class="tbi"/>`;
   }
   for (let c = 1; c < t; c++) {
-    const cx = L + c * u, x = S.inds.get(key(n, p, c));
+    const cx = L + c * u, x = GI().get(key(n, p, c));
     s += x
       ? `<rect x="${cx - 7.5}" y="${my - 6.5}" width="15" height="13" rx="2.5" class="${completa(x) ? 'cf' : 'ci'}"/><text x="${cx}" y="${my + 0.5}" class="${completa(x) ? 'tf' : 'ti'}">${esc(ini(x))}</text>`
       : `<rect x="${cx - 6.5}" y="${my - 4}" width="13" height="8" rx="2" class="cv"/>`;
@@ -611,14 +615,14 @@ function filaSVG(n, p, y, L) {
 }
 
 const numerosTubo = (L, y, todos) => {
-  const t = S.lev.t, paso = todos ? 1 : t > 30 ? 5 : t > 16 ? 2 : 1;
+  const t = GL().t, paso = todos ? 1 : t > 30 ? 5 : t > 16 ? 2 : 1;
   return range(t).filter(i => i === 1 || i % paso === 0).map(i => `<text x="${L + (i - 0.5) * G.u}" y="${y}" class="tn">${i}</text>`).join('');
 };
-const panelCon = (n, p) => range(S.lev.t - 1).some(c => S.inds.has(key(n, p, c)));
+const panelCon = (n, p) => range(GL().t - 1).some(c => GI().has(key(n, p, c)));
 
 // nivel completo: se usa en pantalla y en la lámina (w, h = tamaño en px para la lámina)
 function svgNivel(n, w, h) {
-  const l = S.lev, { L, u, rh, top } = G, W = L + l.t * u, H = top + l.p * rh;
+  const l = GL(), { L, u, rh, top } = G, W = L + l.t * u, H = top + l.p * rh;
   let s = numerosTubo(L, top / 2);
   for (let p = 1; p <= l.p; p++) {
     const y = top + (p - 1) * rh;
@@ -937,7 +941,7 @@ function conectar() {
   };
   $('#nLam').onclick = () => verLamina(S.vista === 'lista' && S.filtroN ? S.filtroN : S.nivel);
   $('#nExp').onclick = exportar;
-  $('#nInf').onclick = menuInforme;
+  $('#nInf').onclick = () => menuInforme();
   const bi = $('#bIns'); if (bi) bi.onclick = () => marcarInspeccion(S.nivel);
   const br = $('#bResL'); if (br) br.onclick = () => resumenHallazgos(S.lev.prj, S.lev.kid);
   $('#nAju').onclick = ajustes;
@@ -1412,34 +1416,80 @@ async function sinSello(f) {
   return { d: c2.toDataURL('image/jpeg', 0.85), w, h: h - banda };
 }
 
-async function datosInforme(avance, paraCliente) {
-  const l = S.lev, xs = [...S.inds.values()].sort(ordenar), cnt = conteoNiveles();
+// grilla de un nivel como PNG para el informe
+async function grillaPNG(l, inds, n) {
+  const uw = G.L + l.t * G.u, uh = G.top + l.p * G.rh, gw = Math.round(uw * 2.2), gh = Math.round(uh * 2.2);
+  S.gctx = { l, inds }; const sv = svgNivel(n, gw, gh); S.gctx = null;
+  const im = await cargarImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sv));
+  const cv = document.createElement('canvas'); cv.width = gw; cv.height = gh; cv.getContext('2d').drawImage(im, 0, 0, gw, gh);
+  return { d: cv.toDataURL('image/png'), w: gw, h: gh };
+}
+
+// niveles (grilla + tabla) y fichas con fotos de una grilla
+async function seccionInforme(l, xs, paraCliente, avance, pre = '') {
+  const shn = sobre(l.sid)?.nombre || 'Sobrecalentador', inds = new Map(xs.map(x => [x.id, x])), sec = { titulo: shn, niveles: [], fichas: [] };
+  const nn = n => nombresNiv(l)[n - 1] || 'N' + n;
+  for (const n of range(l.n)) {
+    const ys = xs.filter(x => x.n === n); if (!ys.length) continue;
+    avance(`${pre}grilla ${nn(n)}…`);
+    sec.niveles.push({
+      titulo: `${nivelNom(n, l)} · ${shn}`, img: await grillaPNG(l, inds, n),
+      filas: ys.map(x => [codigo(x), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || ''])
+    });
+  }
+  let i = 0;
+  for (const x of xs) {
+    avance(`${pre}fotos ${++i} de ${xs.length}…`);
+    let fs = [];
+    if (x.nf > 0) fs = (await getDocs(query(collection(db, 'levantamientos', l.id, 'indicaciones', x.id, 'fotos'), orderBy('t')))).docs.map(d => d.data());
+    const g = fs.find(f => tipoFoto(f) === 'general'), d = fs.find(f => tipoFoto(f) === 'detalle');
+    sec.fichas.push({
+      titulo: `Nivel ${pad(x.n)}${nombresNiv(l)[x.n - 1] ? ' (' + nombresNiv(l)[x.n - 1] + ')' : ''}, Panel N°${pad(x.p)}, Tubos N°${pad(x.c)}-${pad(x.c + 1)}  ·  ${tipoTxt(x)}`,
+      ubic: `${shn} · Código ${codigo(x)} · candado entre los tubos ${x.c} y ${x.c + 1}` + (paraCliente ? '' : ` · registró ${x.u}, ${fecha(x.t)}`),
+      general: g ? await (paraCliente ? sinSello(g) : medir(g.d)) : null, detalle: d ? await (paraCliente ? sinSello(d) : medir(d.d)) : null, obs: x.nota || ''
+    });
+  }
+  return sec;
+}
+
+// alcance 'sh' = sobrecalentador abierto; 'caldera' = todos los sobrecalentadores de la caldera en el evento
+async function datosInforme(avance, paraCliente, alcance = 'sh', prj, kid) {
+  const l0 = alcance === 'sh' ? S.lev : null;
+  prj = prj || S.lev?.prj; kid = kid || S.lev?.kid;
+  const e = proy(prj), k = cal(kid), cliId = l0?.cid || k?.cid;
+  const base = l0 ? nombreCompleto(l0) : [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, e?.nombre, k?.nombre].filter(Boolean).join(' · ');
   const c = {
-    titulo: 'Inspección de candados',
-    subtitulo: paraCliente ? nombreCompleto(l) : `${nombreCompleto(l)} · ${fecha(Date.now()).slice(0, 10)}`,
-    resumen: `${l.n} niveles · ${l.p} paneles · ${l.t} tubos por panel (${l.t - 1} candados) · ${xs.length} indicación(es)`,
-    conteo: range(l.n).map(i => `${chipNom(i)}: ${cnt[i] || 0}`).join('    '),
-    filas: xs.map(x => [codigo(x), chipNom(x.n), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || '']),
-    niveles: [], fichas: [], pie: paraCliente ? 'Informe de inspección de candados' : 'TIES · Informe de candados · uso interno'
+    titulo: alcance === 'caldera' ? 'Inspección de candados · caldera completa' : 'Inspección de candados',
+    subtitulo: paraCliente ? base : `${base} · ${fecha(Date.now()).slice(0, 10)}`,
+    secciones: [], pie: paraCliente ? 'Informe de inspección de candados' : 'TIES · Informe de candados · uso interno'
   };
-  // logos: cliente y empresa (la empresa queda en la esquina superior derecha)
-  c.logos = (await Promise.all([cli(l.cid)?.logo, logoEmpresa()].filter(Boolean).map(medir))).filter(Boolean);
-  // resumen de hallazgos de toda la caldera en el evento (como la ventana Resumen de la app)
-  if (l.prj && l.kid) {
-    avance('Resumen de la caldera…');
-    const levs = S.levs.filter(v => v.prj === l.prj && v.kid === l.kid), inds = new Map();
-    await Promise.all(levs.map(async v => inds.set(v.id, v.id === l.id ? xs
+  c.logos = (await Promise.all([cli(cliId)?.logo, logoEmpresa()].filter(Boolean).map(medir))).filter(Boolean);
+  // indicaciones de todas las grillas de la caldera en el evento
+  const inds = new Map();
+  if (prj && kid) {
+    avance('Leyendo la caldera…');
+    const levs = S.levs.filter(v => v.prj === prj && v.kid === kid);
+    await Promise.all(levs.map(async v => inds.set(v.id, S.lev && v.id === S.lev.id ? [...S.inds.values()].sort(ordenar)
       : (await getDocs(collection(db, 'levantamientos', v.id, 'indicaciones'))).docs.map(d => ({ id: d.id, ...d.data() })).sort(ordenar))));
-    const todas = [...inds.values()].flat(), shs = shDe(l.kid);
-    inds.forEach((ys, id) => { if (id !== l.id) { const c = {}; ys.forEach(y => c[y.n] = (c[y.n] || 0) + 1); S.cntLev[id] = c; } });
+    inds.forEach((ys, id) => { if (!S.lev || id !== S.lev.id) { const cc = {}; ys.forEach(y => cc[y.n] = (cc[y.n] || 0) + 1); S.cntLev[id] = cc; } });
+  }
+  if (l0) {
+    const xs = [...S.inds.values()].sort(ordenar), cnt = conteoNiveles();
+    c.resumen = `${l0.n} niveles · ${l0.p} paneles · ${l0.t} tubos por panel (${l0.t - 1} candados) · ${xs.length} indicación(es)`;
+    c.conteo = range(l0.n).map(i => `${chipNom(i)}: ${cnt[i] || 0}`).join('    ');
+    c.filas = xs.map(x => [codigo(x), chipNom(x.n), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || '']);
+  } else c.soloResumen = true;
+  // resumen de hallazgos de la caldera
+  if (prj && kid) {
+    const todas = [...inds.values()].flat(), shs = shDe(kid);
     let totN = 0, insN = 0;
-    shs.forEach(x => { const v = levEv(l.prj, x.id); totN += v?.n || x.n || 0; insN += nInsp(v); });
+    shs.forEach(x => { const v = levEv(prj, x.id); totN += v?.n || x.n || 0; insN += nInsp(v); });
     const tiles = [[todas.length, 'hallazgos'], ...TIPOS.map(t => [todas.filter(y => y.k === t).length, t]), [`${insN}/${totN}`, 'niveles inspeccionados']];
     if (!paraCliente) tiles.push([todas.filter(y => !completa(y)).length, 'con fotos pendientes']);
     c.resumenCal = {
-      titulo: `Resumen de hallazgos · ${cal(l.kid)?.nombre || ''}`, tiles,
+      titulo: `Resumen de hallazgos · ${k?.nombre || ''}`, tiles,
       shs: shs.map(x => {
-        const v = levEv(l.prj, x.id), ys = v ? inds.get(v.id) || [] : [], n = v?.n || x.n, cnt = {};
+        const v = levEv(prj, x.id), ys = v ? inds.get(v.id) || [] : [], n = v?.n || x.n, cnt = {};
         ys.forEach(y => cnt[y.n] = (cnt[y.n] || 0) + 1);
         return {
           nombre: x.nombre, estado: v ? `${nInsp(v)}/${n} niveles inspeccionados · ${plural(ys.length, 'hallazgo', 'hallazgos')}` : 'sin iniciar',
@@ -1449,79 +1499,79 @@ async function datosInforme(avance, paraCliente) {
       })
     };
   }
-  // croquis de la caldera con el sobrecalentador marcado
-  const k = cal(l.kid);
+  // croquis de la caldera (con el sobrecalentador marcado si es de uno solo)
   if (k && (k.img || shDe(k.id).length)) {
     avance('Croquis…');
-    let img = k.cqmap?.cols?.length ? await imagenMapa(k, { sid: l.sid, cnt }) : k.img ? await medir(k.img) : null;
+    const sid = l0?.sid || null, cnt = l0 ? conteoNiveles() : {};
+    let img = k.cqmap?.cols?.length ? await imagenMapa(k, { sid, cnt }) : k.img ? await medir(k.img) : null;
     if (!img) {
-      const sv = svgCroquis(k.id, l.sid, 0, cnt), vb = sv.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/), w = Math.round(+vb[1] * 4), h = Math.round(+vb[2] * 4);
+      const sv = svgCroquis(k.id, sid, 0, cnt), vb = sv.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/), w = Math.round(+vb[1] * 4), h = Math.round(+vb[2] * 4);
       const i2 = await cargarImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sv));
       const cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.getContext('2d').drawImage(i2, 0, 0, w, h);
       img = { d: cv.toDataURL('image/png'), w, h };
     }
-    c.croquis = { titulo: `Croquis · ${sobre(l.sid)?.nombre || k.nombre}`, img };
+    c.croquis = { titulo: `Croquis · ${l0 ? sobre(l0.sid)?.nombre || k.nombre : k.nombre}`, img };
   }
-  for (const n of range(l.n)) {
-    const ys = xs.filter(x => x.n === n); if (!ys.length) continue;
-    avance(`Grilla ${chipNom(n)}…`);
-    const uw = G.L + l.t * G.u, uh = G.top + l.p * G.rh, gw = Math.round(uw * 2.2), gh = Math.round(uh * 2.2);
-    const im = await cargarImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgNivel(n, gw, gh)));
-    const cv = document.createElement('canvas'); cv.width = gw; cv.height = gh; cv.getContext('2d').drawImage(im, 0, 0, gw, gh);
-    c.niveles.push({
-      titulo: `${nivelNom(n)} · ${sobre(l.sid)?.nombre || 'Sobrecalentador'}`, img: { d: cv.toDataURL('image/png'), w: gw, h: gh },
-      filas: ys.map(x => [codigo(x), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || ''])
-    });
+  // secciones: el sobrecalentador abierto, o todos los de la caldera en orden
+  if (l0) c.secciones.push(await seccionInforme(l0, [...S.inds.values()].sort(ordenar), paraCliente, avance));
+  else {
+    const shs = shDe(kid);
+    for (const [i, x] of shs.entries()) {
+      const v = levEv(prj, x.id); if (!v) continue;
+      const xs = inds.get(v.id) || []; if (!xs.length) continue;
+      c.secciones.push(await seccionInforme(v, xs, paraCliente, avance, `${abrevSH(x.nombre)} (${i + 1}/${shs.length}): `));
+    }
   }
-  let i = 0;
-  for (const x of xs) {
-    avance(`Fotos ${++i} de ${xs.length}…`);
-    let fs = [];
-    if (x.nf > 0) fs = (await getDocs(query(fotosCol(x.id), orderBy('t')))).docs.map(d => d.data());
-    const g = fs.find(f => tipoFoto(f) === 'general'), d = fs.find(f => tipoFoto(f) === 'detalle');
-    c.fichas.push({
-      titulo: `Nivel ${pad(x.n)}${(nombresNiv(l)[x.n - 1]) ? ' (' + nombresNiv(l)[x.n - 1] + ')' : ''}, Panel N°${pad(x.p)}, Tubos N°${pad(x.c)}-${pad(x.c + 1)}  ·  ${tipoTxt(x)}`,
-      ubic: `Código ${codigo(x)} · candado entre los tubos ${x.c} y ${x.c + 1}` + (paraCliente ? '' : ` · registró ${x.u}, ${fecha(x.t)}`),
-      general: g ? await (paraCliente ? sinSello(g) : medir(g.d)) : null, detalle: d ? await (paraCliente ? sinSello(d) : medir(d.d)) : null, obs: x.nota || ''
-    });
-  }
+  c.total = c.secciones.reduce((a, s) => a + s.fichas.length, 0);
   return c;
 }
 
-function menuInforme() {
-  const xs = [...S.inds.values()], faltan = xs.filter(x => !completa(x)).length;
+// prj/kid: caldera en el evento; desde la grilla se puede elegir el sobrecalentador o toda la caldera
+function menuInforme(prj, kid) {
+  const desdeGrilla = !prj && S.lev; prj = prj || S.lev?.prj; kid = kid || S.lev?.kid;
+  const k = cal(kid), cliId = k?.cid || S.lev?.cid, conCal = !!(prj && kid);
+  const alc = !desdeGrilla ? 'caldera' : ls.get('ties_inf_alc', 'sh') === 'caldera' && conCal ? 'caldera' : 'sh';
+  const xs = desdeGrilla ? [...S.inds.values()] : [], faltan = xs.filter(x => !completa(x)).length;
   hoja(`<h3>Informe de candados</h3>
-    <p class="nota">${esc(nombreCompleto(S.lev))}<br>Resumen con la tabla de indicaciones, una hoja por nivel con su grilla y el detalle de cada candado con foto general, foto de detalle y observaciones.</p>
+    <p class="nota">${esc(desdeGrilla ? nombreCompleto(S.lev) : [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, proy(prj)?.nombre, k?.nombre].filter(Boolean).join(' · '))}</p>
+    ${desdeGrilla && conCal ? `<h4>Alcance</h4><div class="version">
+      <label><input type="radio" name="iAlc" value="sh" ${alc === 'sh' ? 'checked' : ''}><span><b>Este sobrecalentador</b><small>${esc(sobre(S.lev.sid)?.nombre || '')}</small></span></label>
+      <label><input type="radio" name="iAlc" value="caldera" ${alc === 'caldera' ? 'checked' : ''}><span><b>Toda la caldera</b><small>${plural(shDe(kid).length, 'sobrecalentador', 'sobrecalentadores')} en un solo informe</small></span></label></div>` : ''}
+    <p class="nota">Resumen de hallazgos de la caldera, croquis, una hoja por nivel con su grilla y su tabla, y el detalle de cada candado con foto general, foto de detalle y observaciones.</p>
     ${faltan ? `<p class="aviso">${ic('camara', 18)} ${plural(faltan, 'indicación no tiene', 'indicaciones no tienen')} las dos fotos; en el informe aparecerá "Sin foto".</p>` : ''}
-    <div class="version"><label><input type="radio" name="iVer" value="cliente" ${ls.get('ties_inf_ver', 'cliente') === 'cliente' ? 'checked' : ''}><span><b>Para el cliente</b><small>Sin fechas del levantamiento ni quién lo registró; fotos sin sello</small></span></label>
+    <h4>Versión</h4><div class="version"><label><input type="radio" name="iVer" value="cliente" ${ls.get('ties_inf_ver', 'cliente') === 'cliente' ? 'checked' : ''}><span><b>Para el cliente</b><small>Sin fechas del levantamiento ni quién lo registró; fotos sin sello</small></span></label>
       <label><input type="radio" name="iVer" value="interno" ${ls.get('ties_inf_ver', 'cliente') === 'interno' ? 'checked' : ''}><span><b>Interno</b><small>Con fecha, responsables y fotos con sello</small></span></label></div>
-    ${!logoEmpresa() || !cli(S.lev.cid)?.logo ? `<p class="nota">Logos: ${!logoEmpresa() ? 'carga el de la empresa en el menú ⋮' : ''}${!logoEmpresa() && !cli(S.lev.cid)?.logo ? ' y ' : ''}${!cli(S.lev.cid)?.logo ? 'el del cliente en la pantalla del cliente' : ''}.</p>` : ''}
+    ${!logoEmpresa() || !cli(cliId)?.logo ? `<p class="nota">Logos: ${!logoEmpresa() ? 'carga el de la empresa en el menú ⋮' : ''}${!logoEmpresa() && !cli(cliId)?.logo ? ' y ' : ''}${!cli(cliId)?.logo ? 'el del cliente en la pantalla del cliente' : ''}.</p>` : ''}
     <button class="btn pri" id="iPdf">${ic('informe')}<span>Informe PDF</span></button>
     <button class="btn" id="iDoc">${ic('informe')}<span>Informe Word (.docx)</span></button>
     <p class="nota" id="iAv"></p>
     <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
   $('#modal').querySelectorAll('[name="iVer"]').forEach(r => r.onchange = () => ls.set('ties_inf_ver', r.value));
-  $('#iPdf').onclick = () => generarInforme('pdf');
-  $('#iDoc').onclick = () => generarInforme('docx');
+  $('#modal').querySelectorAll('[name="iAlc"]').forEach(r => r.onchange = () => ls.set('ties_inf_alc', r.value));
+  const alcance = () => !desdeGrilla ? 'caldera' : $('#modal [name="iAlc"]:checked')?.value || 'sh';
+  $('#iPdf').onclick = () => generarInforme('pdf', alcance(), prj, kid);
+  $('#iDoc').onclick = () => generarInforme('docx', alcance(), prj, kid);
 }
 
-async function generarInforme(tipo) {
+async function generarInforme(tipo, alcance, prj, kid) {
   const bs = ['#iPdf', '#iDoc'].map(s => $(s)); bs.forEach(b => b && (b.disabled = true));
   const av = t => { const e = $('#iAv'); if (e) e.textContent = t; };
   try {
     av('Preparando…');
     const cliente = ($('#modal [name="iVer"]:checked')?.value || 'cliente') === 'cliente';
-    const c = await datosInforme(av, cliente);
+    const c = await datosInforme(av, cliente, alcance, prj, kid);
     av(tipo === 'pdf' ? 'Armando el PDF…' : 'Armando el Word…');
     const m = await import('./informe.js');
     const blob = tipo === 'pdf' ? await m.informePDF(c) : await m.informeWord(c);
-    const nombre = `Informe candados ${limpio(nombreCompleto(S.lev))}${cliente ? '' : ' INTERNO ' + hoy()}.${tipo}`;
-    hoja(`<h3>Informe listo</h3><p>${cliente ? 'Para el cliente' : 'Interno'} · ${tipo === 'pdf' ? 'PDF' : 'Word'} · ${c.fichas.length} indicación(es) · ${(blob.size / 1048576).toFixed(1)} MB</p>
+    const k = cal(kid), base = alcance === 'caldera' ? [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, proy(prj)?.nombre, k?.nombre].filter(Boolean).join(' · ') + ' completa' : nombreCompleto(S.lev);
+    const nombre = `Informe candados ${limpio(base)}${cliente ? '' : ' INTERNO ' + hoy()}.${tipo}`;
+    hoja(`<h3>Informe listo</h3><p>${alcance === 'caldera' ? 'Caldera completa' : 'Sobrecalentador'} · ${cliente ? 'para el cliente' : 'interno'} · ${tipo === 'pdf' ? 'PDF' : 'Word'} · ${c.total} indicación(es) · ${(blob.size / 1048576).toFixed(1)} MB</p>
       <button class="btn pri" id="zSh">${ic('compartir')}Compartir</button><button class="btn" id="zDes">${ic('bajar')}Guardar en Descargas</button>
       <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
     $('#zSh').onclick = () => compartir(blob, nombre);
     $('#zDes').onclick = () => descargar(blob, nombre);
   } catch (e) {
+    console.error(e);
     toast('No se pudo armar el informe: ' + (e.code || e.message), 6000);
     bs.forEach(b => b && (b.disabled = false)); av('');
   }

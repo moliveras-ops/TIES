@@ -37,10 +37,12 @@ export async function informePDF(c) {
   const nueva = t => { pie(); pdf.addPage(); hoja++; cab(t); };
   const texto = (t, sz = 10, b = false, col = [19, 32, 44]) => { pdf.setFont('helvetica', b ? 'bold' : 'normal'); pdf.setFontSize(sz); color('setTextColor', col); };
 
-  // hoja 1: resumen y tabla
-  cab(c.titulo);
-  texto(c.resumen, 10.5); pdf.text(pdf.splitTextToSize(c.resumen, ANCHO), M, y); y += 7;
-  texto(c.conteo, 10, true); const lc = pdf.splitTextToSize(c.conteo, ANCHO); pdf.text(lc, M, y); y += lc.length * 5 + 4;
+  // hoja 1: resumen y tabla del sobrecalentador (en el informe de caldera completa, la hoja 1 es el resumen de la caldera)
+  cab(c.soloResumen ? c.titulo : c.titulo);
+  if (!c.soloResumen) {
+    texto(c.resumen, 10.5); pdf.text(pdf.splitTextToSize(c.resumen, ANCHO), M, y); y += 7;
+    texto(c.conteo, 10, true); const lc = pdf.splitTextToSize(c.conteo, ANCHO); pdf.text(lc, M, y); y += lc.length * 5 + 4;
+  }
   const tabla = (cols, filas, tit) => {
     const encabezado = () => {
       color('setFillColor', CELESTE); pdf.rect(M, y - 4.5, ANCHO, 7, 'F'); texto('', 9, true);
@@ -62,11 +64,12 @@ export async function informePDF(c) {
     const e = Math.min(ANCHO / im.w, (FIN - y - 2) / im.h), iw = im.w * e, ih = im.h * e;
     pdf.addImage(im.d, fmt, M + (ANCHO - iw) / 2, y, iw, ih, undefined, 'FAST'); y += ih + 4;
   };
-  tabla(COLS, c.filas, c.titulo);
+  if (!c.soloResumen) tabla(COLS, c.filas, c.titulo);
 
   // resumen de hallazgos de la caldera
   if (c.resumenCal) {
-    const R = c.resumenCal; nueva(R.titulo);
+    const R = c.resumenCal;
+    if (c.soloResumen) { texto('', 12, true, AZUL); pdf.text(R.titulo, M, y); y += 7; } else nueva(R.titulo);
     const nT = R.tiles.length, tw = (ANCHO - (nT - 1) * 2.5) / nT;
     R.tiles.forEach(([v, t], i) => {
       const x = M + i * (tw + 2.5); color('setDrawColor', [201, 211, 222]); pdf.setLineWidth(0.3); pdf.roundedRect(x, y, tw, 18, 2, 2, 'S');
@@ -101,18 +104,20 @@ export async function informePDF(c) {
   if (c.croquis) { nueva(c.croquis.titulo); hojaImagen(c.croquis.img, c.croquis.img.d.startsWith('data:image/png') ? 'PNG' : 'JPEG'); }
 
   // por nivel: grilla en hoja completa y la tabla de sus indicaciones en la hoja siguiente
-  for (const nv of c.niveles) {
+  const CW = (ANCHO - 6) / 2, CH = 74, varias = c.secciones.length > 1;
+  for (const sec of c.secciones) {
+  for (const nv of sec.niveles) {
     nueva(nv.titulo); hojaImagen(nv.img, 'PNG');
     nueva('Indicaciones · ' + nv.titulo); tabla(COLS_NIV, nv.filas, 'Indicaciones · ' + nv.titulo);
   }
 
   // detalle: foto general + foto de detalle + observaciones
-  if (c.fichas.length) nueva('Detalle de indicaciones');
-  const CW = (ANCHO - 6) / 2, CH = 74;
-  c.fichas.forEach((f, i) => {
+  const tDet = 'Detalle de indicaciones' + (varias ? ' · ' + sec.titulo : '');
+  if (sec.fichas.length) nueva(tDet);
+  sec.fichas.forEach((f, i) => {
     texto('', 9.5); const obs = pdf.splitTextToSize(f.obs || 'Sin observaciones.', ANCHO - 4);
     const alto = 10 + 6 + CH + 7 + 6 + obs.length * 4.4 + 6;
-    if (i && y + alto > FIN) nueva('Detalle de indicaciones');
+    if (i && y + alto > FIN) nueva(tDet);
     color('setFillColor', SUAVE); pdf.rect(M, y, ANCHO, 9, 'F');
     texto(f.titulo, 12.5, true); pdf.text(f.titulo, M + 3, y + 6.2); y += 14;
     texto(f.ubic, 9.5); pdf.text(f.ubic, M + 2, y); y += 4;
@@ -132,6 +137,7 @@ export async function informePDF(c) {
     texto('', 9.5); pdf.text(obs, M + 2, y); y += obs.length * 4.4 + 3;
     color('setDrawColor', [201, 211, 222]); pdf.setLineWidth(0.3); pdf.line(M, y, W - M, y); y += 6;
   });
+  }
   pie();
   return pdf.output('blob');
 }
@@ -174,17 +180,17 @@ export async function informeWord(c) {
   };
 
   let b = cab(c.titulo);
-  b += par(run(c.resumen, { sz: 21 })) + par(run(c.conteo, { b: true, sz: 20 }), { despues: 160 });
+  if (!c.soloResumen) b += par(run(c.resumen, { sz: 21 })) + par(run(c.conteo, { b: true, sz: 20 }), { despues: 160 });
   const celda = (t, w, enc) => `<w:tc><w:tcPr><w:tcW w:w="${twip(w)}" w:type="dxa"/>${enc ? `<w:shd w:val="clear" w:color="auto" w:fill="${hex(CELESTE)}"/>` : ''}</w:tcPr>${par(run(t, { b: enc, sz: 17 }), { despues: 0 })}</w:tc>`;
   const tabla = (cols, filas) => filas.length ? `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:insideH w:val="single" w:sz="4" w:color="D5DDE6"/><w:bottom w:val="single" w:sz="4" w:color="D5DDE6"/></w:tblBorders><w:tblCellMar><w:left w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/></w:tblCellMar></w:tblPr>
 <w:tblGrid>${cols.map(([, w]) => `<w:gridCol w:w="${twip(w)}"/>`).join('')}</w:tblGrid>
 <w:tr><w:trPr><w:tblHeader/></w:trPr>${cols.map(([t, w]) => celda(t, w, true)).join('')}</w:tr>
 ${filas.map(f => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${f.map((v, i) => celda(v, cols[i][1])).join('')}</w:tr>`).join('')}</w:tbl>` : par(run('Sin indicaciones registradas.'));
-  b += tabla(COLS, c.filas);
+  if (!c.soloResumen) b += tabla(COLS, c.filas);
 
   if (c.resumenCal) {
     const R = c.resumenCal, tw = 182 / R.tiles.length;
-    b += salto + cab(R.titulo);
+    b += c.soloResumen ? par(run(R.titulo, { b: true, sz: 24, col: AZUL }), { despues: 100 }) : salto + cab(R.titulo);
     b += `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:insideV w:val="single" w:sz="4" w:color="FFFFFF"/></w:tblBorders></w:tblPr><w:tblGrid>${R.tiles.map(() => `<w:gridCol w:w="${twip(tw)}"/>`).join('')}</w:tblGrid><w:tr>${R.tiles.map(([v, t]) =>
       `<w:tc><w:tcPr><w:tcW w:w="${twip(tw)}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${hex(SUAVE)}"/></w:tcPr>${par(run(String(v), { b: true, sz: 30, col: AZUL }), { al: 'center', antes: 80, despues: 0 })}${par(run(t, { sz: 15, col: GRIS }), { al: 'center', despues: 80 })}</w:tc>`).join('')}</w:tr></w:tbl>`;
     b += par(run('Verde: nivel inspeccionado · entre paréntesis: hallazgos en el nivel', { sz: 16, col: GRIS }), { antes: 80 });
@@ -198,14 +204,15 @@ ${filas.map(f => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${f.map((v, i) => celda(v
   }
 
   if (c.croquis) b += salto + cab(c.croquis.titulo) + par(imagen(c.croquis.img, 182, 232), { al: 'center' });
-  for (const nv of c.niveles) {
+  const CW = 87, CH = 72, varias = c.secciones.length > 1;
+  for (const sec of c.secciones) {
+  for (const nv of sec.niveles) {
     b += salto + cab(nv.titulo) + par(imagen(nv.img, 182, 232), { al: 'center' });
     b += salto + cab('Indicaciones · ' + nv.titulo) + tabla(COLS_NIV, nv.filas);
   }
 
-  if (c.fichas.length) b += salto + cab('Detalle de indicaciones');
-  const CW = 87, CH = 72;
-  c.fichas.forEach((f, i) => {
+  if (sec.fichas.length) b += salto + cab('Detalle de indicaciones' + (varias ? ' · ' + sec.titulo : ''));
+  sec.fichas.forEach((f, i) => {
     const foto = (k, rot) => f[k]
       ? `<w:tc><w:tcPr><w:tcW w:w="${twip(CW + 4)}" w:type="dxa"/></w:tcPr>${par(imagen(f[k], CW, CH), { al: 'center', despues: 40 })}${par(run(rot, { b: true, sz: 18, col: AZUL }), { al: 'center' })}</w:tc>`
       : `<w:tc><w:tcPr><w:tcW w:w="${twip(CW + 4)}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${hex(SUAVE)}"/><w:vAlign w:val="center"/></w:tcPr>${par(run(`Sin ${rot.toLowerCase()}`, { sz: 18, col: GRIS }), { al: 'center', despues: 0 })}</w:tc>`;
@@ -216,6 +223,7 @@ ${filas.map(f => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${f.map((v, i) => celda(v
     b += par(run('Observaciones', { b: true, sz: 20, col: AZUL }), { antes: 80, despues: 40 });
     b += par(run(f.obs || 'Sin observaciones.', { sz: 19 }), { despues: 120, borde: true });
   });
+  }
 
   const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"';
   z.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${NS}><w:body>${b}
