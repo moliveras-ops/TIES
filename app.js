@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.1';
+const VERSION = '2.2';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -219,6 +219,9 @@ const chipNom = i => nombresNiv()[i - 1] || `N${i}`;
 // niveles inspeccionados: lev.insp = { n: { u, t } } (null = no inspeccionado)
 const inspN = (l, n) => l?.insp?.[n] || null;
 const nInsp = l => l ? range(l.n).filter(n => inspN(l, n)).length : 0;
+// paneles inspeccionados dentro de cada nivel: lev.ip = { 'N3_P12': { u, t } | null }
+const inspP = (l, n, p) => l?.ip?.[`N${n}_P${p}`] || null;
+const nPanInsp = (l, n) => l ? range(l.p).filter(p => inspP(l, n, p)).length : 0;
 const levEv = (prj, sid) => S.levs.find(l => l.prj === prj && l.sid === sid);
 const inspTxt = l => l ? `${nInsp(l)} de ${l.n} niveles inspeccionados` : 'sin iniciar';
 const dimTxt = x => `${x.p} paneles · ${x.t} tubos · ${x.n} niveles`;
@@ -240,7 +243,8 @@ function inicio() {
     if (S.lev) {
       const l = S.levs.find(x => x.id === S.lev.id);
       if (!l) { if (snap.metadata.fromCache) return; toast('El levantamiento fue eliminado'); return cerrarLev(); }
-      const cambio = l.p !== S.lev.p || l.n !== S.lev.n || l.t !== S.lev.t || l.nombre !== S.lev.nombre || l.kid !== S.lev.kid || JSON.stringify(l.insp || {}) !== JSON.stringify(S.lev.insp || {});
+      const cambio = l.p !== S.lev.p || l.n !== S.lev.n || l.t !== S.lev.t || l.nombre !== S.lev.nombre || l.kid !== S.lev.kid || JSON.stringify(l.insp || {}) !== JSON.stringify(S.lev.insp || {}) || JSON.stringify(l.ip || {}) !== JSON.stringify(S.lev.ip || {});
+      if (cambio && S.panel) setTimeout(pintarPanel);
       S.lev = l; tituloLev(); if (cambio) render();
     } else if (S.levId && S.levs.some(x => x.id === S.levId)) abrirLev(S.levId);
     else pantalla();
@@ -565,7 +569,7 @@ const SVG_CSS = '.tb{fill:#dde6ef;stroke:#1f3a57;stroke-width:1.6}.tbi{fill:#fff
   '.cv{fill:#fff;stroke:#1f3a57;stroke-width:1.4}.ci{fill:#F48FB1;stroke:#c2185b;stroke-width:1}.cf{fill:#D32F2F;stroke:#8e1b1b;stroke-width:1}' +
   'text{font-family:system-ui,Roboto,Arial,sans-serif;text-anchor:middle;dominant-baseline:central}' +
   '.ti,.tf{font-size:8.5px;font-weight:700}.ti{fill:#5a0d26}.tf{fill:#fff}' +
-  '.pl{font-size:10.5px;font-weight:700;fill:#0E3A5F;text-anchor:start}.pl.r{fill:#D32F2F}.tn{font-size:7px;fill:#33475b}';
+  '.pl{font-size:10.5px;font-weight:700;fill:#0E3A5F;text-anchor:start}.pl.r{fill:#D32F2F}.pl.v{fill:#1b5e20}.pok{fill:#d9f0db;stroke:#66bb6a;stroke-width:.8}.tn{font-size:7px;fill:#33475b}';
 
 // Los dibujos se muestran como imagen: el modo oscuro forzado del teléfono invierte el HTML pero no las imágenes
 const comoImg = (svg, estilo = '') => `<img class="dib" alt="" draggable="false" style="${estilo}" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}">`;
@@ -599,8 +603,10 @@ function svgNivel(n, w, h) {
   let s = numerosTubo(L, top / 2);
   for (let p = 1; p <= l.p; p++) {
     const y = top + (p - 1) * rh;
-    if (p % 2 === 0) s += `<rect x="0" y="${y}" width="${W}" height="${rh}" class="fz"/>`;
-    s += `<text x="2" y="${y + rh / 2}" class="pl${panelCon(n, p) ? ' r' : ''}">P${pad(p)}</text>` + filaSVG(n, p, y, L);
+    const ok = inspP(l, n, p);
+    if (ok) s += `<rect x="0" y="${y + 1}" width="${W}" height="${rh - 2}" rx="3" class="pok"/>`;
+    else if (p % 2 === 0) s += `<rect x="0" y="${y}" width="${W}" height="${rh}" class="fz"/>`;
+    s += `<text x="2" y="${y + rh / 2}" class="pl${panelCon(n, p) ? ' r' : ok ? ' v' : ''}">${ok ? '✓' : ''}P${pad(p)}</text>` + filaSVG(n, p, y, L);
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${w || W * 2}" height="${h || H * 2}"><style>${SVG_CSS}</style><rect class="fondo" width="${W}" height="${H}"/>${s}</svg>`;
 }
@@ -845,7 +851,7 @@ function vistaGrilla() {
   const chips = range(l.n).map(i => `<button class="chip ${i === n ? 'on' : ''} ${inspN(l, i) ? 'ins' : ''}" data-n="${i}">${inspN(l, i) ? '<b class="chk">✓</b>' : ''}${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
   const cq = l.prj && l.sid ? bloqueCroquis(l.kid) : '', ins = inspN(l, n);
   const bIns = `<div class="insbar ${ins ? 'ok' : ''}">${ins ? `<span>${ic('lista', 20)} <b>${esc(nivelNom(n))} inspeccionado</b> por ${esc(ins.u)} · ${fecha(ins.t)}</span><button class="btn chico" id="bIns">Desmarcar</button>`
-    : `<span>${esc(nivelNom(n))} sin marcar · ${inspTxt(l)}</span><button class="btn chico pri" id="bIns">Marcar nivel como inspeccionado</button>`}</div>`;
+    : `<span>${esc(nivelNom(n))} sin marcar · ${nPanInsp(l, n)} de ${l.p} paneles inspeccionados</span><button class="btn chico pri" id="bIns">Marcar nivel como inspeccionado</button>`}</div>`;
   const bCq = cq ? `<button class="chip cqchip" id="bCq">${ic('caldera', 22)}Croquis</button>` : '';
   return cabNivel(`<b>Candados — ${esc(nivelNom(n))}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, bCq + chips) +
     `<div class="${cq ? 'vgr' : ''}">${cq ? `<aside class="lado">${cq}</aside>` : ''}<div>${bIns}
@@ -921,6 +927,7 @@ function svgPanel(n, p) {
 function verPanel(p) {
   S.panel = p;
   hoja(`<div class="dcab"><h3>Nivel ${S.nivel} · Panel P${pad(p)}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
+    <div id="pIns"></div>
     <p class="nota">Toca el candado entre dos tubos. Desliza hacia el lado si no cabe.</p>
     <div class="pwrap" id="pwrap"></div><div id="pLista"></div>`, () => { S.panel = null; });
   pintarPanel();
@@ -939,6 +946,26 @@ function pintarPanel() {
     <div><b>${codigo(x)}</b> · ${esc(tipoTxt(x))}<small>${esc(x.u)} · ${ic('camara', 14)} ${fotosTxt(x)}</small></div></button>`).join('')
     || '<p class="vacio">Sin indicaciones en este panel.</p>';
   $('#pLista').querySelectorAll('[data-k]').forEach(b => b.onclick = () => { S.panel = null; detalle(b.dataset.k); });
+  const ok = inspP(S.lev, n, p), bi = $('#pIns');
+  if (bi) {
+    bi.innerHTML = `<div class="insbar ${ok ? 'ok' : ''}">${ok ? `<span><b>Panel P${pad(p)} inspeccionado</b> por ${esc(ok.u)} · ${fecha(ok.t)}</span><button class="btn chico" id="pInsB">Desmarcar</button>`
+      : `<span>Panel P${pad(p)} sin marcar · ${nPanInsp(S.lev, n)} de ${S.lev.p} paneles</span><button class="btn chico pri" id="pInsB">Marcar panel como inspeccionado</button>`}</div>`;
+    $('#pInsB').onclick = () => marcarPanel(n, p);
+  }
+}
+
+function marcarPanel(n, p) {
+  const l = S.lev, ya = inspP(l, n, p);
+  if (ya && !confirm(`¿Desmarcar el panel P${pad(p)}? (lo marcó ${ya.u})`)) return;
+  const v = ya ? null : { u: S.nombre, t: Date.now() }, ip = { ...(l.ip || {}), [`N${n}_P${p}`]: v }, cambios = { [`ip.N${n}_P${p}`]: v };
+  let insp = l.insp || {}, todo = false;
+  // todos los paneles inspeccionados → el nivel queda marcado
+  if (!ya && !inspN(l, n) && range(l.p).every(q => ip[`N${n}_P${q}`])) { cambios['insp.' + n] = v; insp = { ...insp, [n]: v }; todo = true; }
+  updateDoc(levRef(l.id), cambios).catch(errEsc);
+  S.lev = { ...l, ip, insp };
+  const i = S.levs.findIndex(x => x.id === l.id); if (i >= 0) S.levs[i] = S.lev;
+  toast(todo ? `Todos los paneles listos: ${nivelNom(n)} marcado como inspeccionado` : ya ? `Panel P${pad(p)} desmarcado` : `Panel P${pad(p)} inspeccionado`, todo ? 4000 : 2000);
+  render(); pintarPanel();
 }
 
 // ---------- registrar indicación ----------
@@ -1325,7 +1352,7 @@ async function resumenHallazgos(prj, kid) {
       const l = levEv(prj, x.id), xs = l ? inds.get(l.id) || [] : [], n = l?.n || x.n;
       const cnt = {}; xs.forEach(y => cnt[y.n] = (cnt[y.n] || 0) + 1);
       h += `<div class="rsh"><div class="rshcab"><b>${esc(x.nombre)}</b><span>${l ? `${nInsp(l)}/${n} inspeccionados · ${plural(xs.length, 'hallazgo', 'hallazgos')}` : 'sin iniciar'}</span></div>
-        <div class="rniv">${range(n).map(j => `<button class="rn ${inspN(l, j) ? 'ok' : ''} ${cnt[j] ? 'con' : ''}" data-sid="${x.id}" data-kid="${k.id}" data-n="${j}">${inspN(l, j) ? '✓ ' : ''}${esc((x.nn || [])[j - 1] || 'N' + j)}${cnt[j] ? `<i>${cnt[j]}</i>` : ''}</button>`).join('')}</div>
+        <div class="rniv">${range(n).map(j => `<button class="rn ${inspN(l, j) ? 'ok' : ''} ${cnt[j] ? 'con' : ''}" data-sid="${x.id}" data-kid="${k.id}" data-n="${j}">${inspN(l, j) ? '✓ ' : ''}${esc((x.nn || [])[j - 1] || 'N' + j)}${!inspN(l, j) && nPanInsp(l, j) ? `<small>${nPanInsp(l, j)}/${l.p}</small>` : ''}${cnt[j] ? `<i>${cnt[j]}</i>` : ''}</button>`).join('')}</div>
         ${xs.map(y => `<button class="rh" data-lev="${l.id}" data-k="${y.id}"><span class="badge ${completa(y) ? 'foto' : 'ind'}">${esc(ini(y))}</span>
           <div><b>${codigo(y)}</b> · ${esc(tipoTxt(y))}${y.nota ? `<br><span class="nt">${esc(y.nota)}</span>` : ''}<small>${esc(y.u)} · ${fecha(y.t)} · ${fotosTxt(y)}</small></div></button>`).join('')}</div>`;
     });

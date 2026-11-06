@@ -159,3 +159,4 @@ nav.abajo button{font-size:13px}
 .version{display:grid;gap:8px;margin:10px 0}.version label{display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid #d5dde6;border-radius:12px;padding:10px;margin:0;font-weight:400}
 .version input{width:22px;height:22px;margin:2px 0 0;flex:none}.version b{display:block;color:var(--azul)}.version small{color:#5b6b7b;font-size:13px}
 .version label:has(input:checked){border-color:var(--ambar);box-shadow:0 0 0 2px #ffe0a3}
+.rn small{font-size:11px;color:#2e7d32;font-weight:700}
