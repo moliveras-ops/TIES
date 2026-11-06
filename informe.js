@@ -7,6 +7,12 @@
 
 const AZUL = [14, 58, 95], GRIS = [90, 107, 123], CELESTE = [214, 228, 240], SUAVE = [238, 241, 245];
 const COLS_RES = [['Código', 34], ['Nivel', 16], ['Panel', 14], ['Candado', 18], ['Indicación', 30], ['Observaciones', 70]];
+// color de la celda Indicación: rotura en naranjo, grieta en rojo con letra blanca
+const COLOR_IND = {
+  Rotura: { fondo: [251, 140, 0], letra: [19, 32, 44] }, Grieta: { fondo: [211, 47, 47], letra: [255, 255, 255] },
+  Desgarro: { fondo: [123, 31, 162], letra: [255, 255, 255] }, Otro: { fondo: [84, 110, 122], letra: [255, 255, 255] }
+};
+const colorInd = (cols, i, v) => cols[i][0] === 'Indicación' && String(v ?? '').trim() ? COLOR_IND[String(v).trim()] || COLOR_IND.Otro : null;
 const VERDE = [200, 230, 201], VERDE_O = [46, 125, 50], ROJO = [211, 47, 47];
 const COLS_NIV = [['Código', 36], ['Panel', 15], ['Candado', 20], ['Indicación', 32], ['Fotos', 22], ['Observaciones', 57]];
 const COLS = [['Código', 34], ['Nivel', 18], ['Panel', 13], ['Candado', 18], ['Indicación', 28], ['Fotos', 20], ['Observaciones', 51]];
@@ -55,7 +61,12 @@ export async function informePDF(c) {
       const celdas = f.map((v, i) => pdf.splitTextToSize(String(v ?? ''), cols[i][1] - 3));
       const alto = Math.max(...celdas.map(l => l.length)) * 4 + 2.5;
       if (y + alto > FIN) { nueva(tit + ' (cont.)'); encabezado(); texto('', 9); }
-      let x = M + 1.5; celdas.forEach((l, i) => { pdf.text(l, x, y); x += cols[i][1]; });
+      let x = M + 1.5;
+      celdas.forEach((l, i) => {
+        const ci = colorInd(cols, i, f[i]);
+        if (ci) { color('setFillColor', ci.fondo); pdf.roundedRect(x - 1.2, y - 3.6, cols[i][1] - 1.5, alto - 1.6, 1, 1, 'F'); texto('', 9, true, ci.letra); }
+        pdf.text(l, x, y); if (ci) texto('', 9); x += cols[i][1];
+      });
       color('setDrawColor', [213, 221, 230]); pdf.setLineWidth(0.2); pdf.line(M, y + alto - 3.5, W - M, y + alto - 3.5);
       y += alto;
     });
@@ -181,11 +192,11 @@ export async function informeWord(c) {
 
   let b = cab(c.titulo);
   if (!c.soloResumen) b += par(run(c.resumen, { sz: 21 })) + par(run(c.conteo, { b: true, sz: 20 }), { despues: 160 });
-  const celda = (t, w, enc) => `<w:tc><w:tcPr><w:tcW w:w="${twip(w)}" w:type="dxa"/>${enc ? `<w:shd w:val="clear" w:color="auto" w:fill="${hex(CELESTE)}"/>` : ''}</w:tcPr>${par(run(t, { b: enc, sz: 17 }), { despues: 0 })}</w:tc>`;
+  const celda = (t, w, enc, ci) => `<w:tc><w:tcPr><w:tcW w:w="${twip(w)}" w:type="dxa"/>${enc || ci ? `<w:shd w:val="clear" w:color="auto" w:fill="${hex(enc ? CELESTE : ci.fondo)}"/>` : ''}</w:tcPr>${par(run(t, { b: enc || !!ci, sz: 17, col: ci?.letra }), { despues: 0 })}</w:tc>`;
   const tabla = (cols, filas) => filas.length ? `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:insideH w:val="single" w:sz="4" w:color="D5DDE6"/><w:bottom w:val="single" w:sz="4" w:color="D5DDE6"/></w:tblBorders><w:tblCellMar><w:left w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/></w:tblCellMar></w:tblPr>
 <w:tblGrid>${cols.map(([, w]) => `<w:gridCol w:w="${twip(w)}"/>`).join('')}</w:tblGrid>
 <w:tr><w:trPr><w:tblHeader/></w:trPr>${cols.map(([t, w]) => celda(t, w, true)).join('')}</w:tr>
-${filas.map(f => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${f.map((v, i) => celda(v, cols[i][1])).join('')}</w:tr>`).join('')}</w:tbl>` : par(run('Sin indicaciones registradas.'));
+${filas.map(f => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${f.map((v, i) => celda(v, cols[i][1], false, colorInd(cols, i, v))).join('')}</w:tr>`).join('')}</w:tbl>` : par(run('Sin indicaciones registradas.'));
   if (!c.soloResumen) b += tabla(COLS, c.filas);
 
   if (c.resumenCal) {

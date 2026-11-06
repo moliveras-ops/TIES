@@ -1,5 +1,5 @@
 // TIES — funciona sin señal: guarda la app y las librerías en el teléfono
-const CACHE = 'ties-v19';
+const CACHE = 'ties-v20';
 const BASE = ['./', 'index.html', 'styles.css', 'app.js', 'informe.js', 'firebase-config.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 const FB = ['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map(f => 'https://www.gstatic.com/firebasejs/11.0.2/' + f);
 
