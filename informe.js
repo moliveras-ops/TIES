@@ -6,6 +6,8 @@
 //       fichas: [{ titulo, ubic, general: {d, w, h} | null, detalle: {d, w, h} | null, obs }], pie }
 
 const AZUL = [14, 58, 95], GRIS = [90, 107, 123], CELESTE = [214, 228, 240], SUAVE = [238, 241, 245];
+const COLS_RES = [['Código', 34], ['Nivel', 16], ['Panel', 14], ['Candado', 18], ['Indicación', 30], ['Observaciones', 70]];
+const VERDE = [200, 230, 201], VERDE_O = [46, 125, 50], ROJO = [211, 47, 47];
 const COLS_NIV = [['Código', 36], ['Panel', 15], ['Candado', 20], ['Indicación', 32], ['Fotos', 22], ['Observaciones', 57]];
 const COLS = [['Código', 34], ['Nivel', 18], ['Panel', 13], ['Candado', 18], ['Indicación', 28], ['Fotos', 20], ['Observaciones', 51]];
 
@@ -61,6 +63,39 @@ export async function informePDF(c) {
     pdf.addImage(im.d, fmt, M + (ANCHO - iw) / 2, y, iw, ih, undefined, 'FAST'); y += ih + 4;
   };
   tabla(COLS, c.filas, c.titulo);
+
+  // resumen de hallazgos de la caldera
+  if (c.resumenCal) {
+    const R = c.resumenCal; nueva(R.titulo);
+    const nT = R.tiles.length, tw = (ANCHO - (nT - 1) * 2.5) / nT;
+    R.tiles.forEach(([v, t], i) => {
+      const x = M + i * (tw + 2.5); color('setDrawColor', [201, 211, 222]); pdf.setLineWidth(0.3); pdf.roundedRect(x, y, tw, 18, 2, 2, 'S');
+      const rojo = i === 0 && +v > 0, ok = /\//.test(String(v)) && String(v).split('/')[0] === String(v).split('/')[1] && String(v) !== '0/0';
+      texto('', 15, true, rojo ? ROJO : ok ? VERDE_O : AZUL); pdf.text(String(v), x + tw / 2, y + 8, { align: 'center' });
+      texto('', 7.5, false, GRIS); pdf.text(pdf.splitTextToSize(t, tw - 2), x + tw / 2, y + 13, { align: 'center' });
+    });
+    y += 24;
+    texto('', 8, false, GRIS); pdf.text('Verde: nivel inspeccionado · número rojo: hallazgos en el nivel', M, y); y += 6;
+    R.shs.forEach(sh => {
+      const alto = 9 + 11 + (sh.filas.length ? 10 : 0);
+      if (y + alto > FIN) nueva(R.titulo + ' (cont.)');
+      color('setFillColor', SUAVE); pdf.rect(M, y, ANCHO, 8, 'F');
+      texto('', 10.5, true, AZUL); pdf.text(sh.nombre, M + 2, y + 5.5);
+      texto('', 8.5, false, GRIS); pdf.text(sh.estado, W - M - 2, y + 5.5, { align: 'right' }); y += 11;
+      let x = M;
+      sh.niveles.forEach(nv => {
+        texto('', 9, true); const bw = Math.max(13, pdf.getTextWidth(nv.nom) + (nv.n ? 10 : 6));
+        if (x + bw > W - M) { x = M; y += 10; }
+        color('setFillColor', nv.ok ? VERDE : [238, 243, 248]); color('setDrawColor', nv.n ? ROJO : nv.ok ? VERDE_O : [201, 211, 222]); pdf.setLineWidth(nv.n ? 0.5 : 0.3);
+        pdf.roundedRect(x, y, bw, 7.5, 1.5, 1.5, 'FD');
+        texto('', 9, true, nv.ok ? [27, 94, 32] : AZUL); pdf.text(nv.nom, x + 3, y + 5.2);
+        if (nv.n) { color('setFillColor', ROJO); pdf.circle(x + bw - 3.6, y + 3.75, 2.6, 'F'); texto('', 7.5, true, [255, 255, 255]); pdf.text(String(nv.n), x + bw - 3.6, y + 4.8, { align: 'center' }); }
+        x += bw + 2.5;
+      });
+      y += 13;
+      if (sh.filas.length) { tabla(COLS_RES, sh.filas, R.titulo + ' (cont.)'); y += 4; }
+    });
+  }
 
   // croquis de la caldera en hoja completa
   if (c.croquis) { nueva(c.croquis.titulo); hojaImagen(c.croquis.img, c.croquis.img.d.startsWith('data:image/png') ? 'PNG' : 'JPEG'); }
@@ -146,6 +181,21 @@ export async function informeWord(c) {
 <w:tr><w:trPr><w:tblHeader/></w:trPr>${cols.map(([t, w]) => celda(t, w, true)).join('')}</w:tr>
 ${filas.map(f => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${f.map((v, i) => celda(v, cols[i][1])).join('')}</w:tr>`).join('')}</w:tbl>` : par(run('Sin indicaciones registradas.'));
   b += tabla(COLS, c.filas);
+
+  if (c.resumenCal) {
+    const R = c.resumenCal, tw = 182 / R.tiles.length;
+    b += salto + cab(R.titulo);
+    b += `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:insideV w:val="single" w:sz="4" w:color="FFFFFF"/></w:tblBorders></w:tblPr><w:tblGrid>${R.tiles.map(() => `<w:gridCol w:w="${twip(tw)}"/>`).join('')}</w:tblGrid><w:tr>${R.tiles.map(([v, t]) =>
+      `<w:tc><w:tcPr><w:tcW w:w="${twip(tw)}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${hex(SUAVE)}"/></w:tcPr>${par(run(String(v), { b: true, sz: 30, col: AZUL }), { al: 'center', antes: 80, despues: 0 })}${par(run(t, { sz: 15, col: GRIS }), { al: 'center', despues: 80 })}</w:tc>`).join('')}</w:tr></w:tbl>`;
+    b += par(run('Verde: nivel inspeccionado · entre paréntesis: hallazgos en el nivel', { sz: 16, col: GRIS }), { antes: 80 });
+    R.shs.forEach(sh => {
+      b += par(run(sh.nombre, { b: true, sz: 21, col: AZUL }) + run('    ' + sh.estado, { sz: 16, col: GRIS }), { sh: SUAVE, antes: 160, despues: 60 });
+      const cw = Math.min(24, 182 / sh.niveles.length);
+      b += `<w:tbl><w:tblPr><w:tblBorders><w:insideV w:val="single" w:sz="12" w:color="FFFFFF"/></w:tblBorders></w:tblPr><w:tblGrid>${sh.niveles.map(() => `<w:gridCol w:w="${twip(cw)}"/>`).join('')}</w:tblGrid><w:tr>${sh.niveles.map(nv =>
+        `<w:tc><w:tcPr><w:tcW w:w="${twip(cw)}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${hex(nv.ok ? VERDE : [238, 243, 248])}"/></w:tcPr>${par(run(nv.nom, { b: true, sz: 17, col: nv.ok ? [27, 94, 32] : AZUL }) + (nv.n ? run(` (${nv.n})`, { b: true, sz: 17, col: ROJO }) : ''), { al: 'center', antes: 40, despues: 40 })}</w:tc>`).join('')}</w:tr></w:tbl>`;
+      if (sh.filas.length) b += par('', { despues: 40 }) + tabla(COLS_RES, sh.filas);
+    });
+  }
 
   if (c.croquis) b += salto + cab(c.croquis.titulo) + par(imagen(c.croquis.img, 182, 232), { al: 'center' });
   for (const nv of c.niveles) {

@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.2';
+const VERSION = '2.3';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -1399,6 +1399,30 @@ async function datosInforme(avance, paraCliente) {
   };
   // logos: cliente y empresa (la empresa queda en la esquina superior derecha)
   c.logos = (await Promise.all([cli(l.cid)?.logo, logoEmpresa()].filter(Boolean).map(medir))).filter(Boolean);
+  // resumen de hallazgos de toda la caldera en el evento (como la ventana Resumen de la app)
+  if (l.prj && l.kid) {
+    avance('Resumen de la caldera…');
+    const levs = S.levs.filter(v => v.prj === l.prj && v.kid === l.kid), inds = new Map();
+    await Promise.all(levs.map(async v => inds.set(v.id, v.id === l.id ? xs
+      : (await getDocs(collection(db, 'levantamientos', v.id, 'indicaciones'))).docs.map(d => ({ id: d.id, ...d.data() })).sort(ordenar))));
+    const todas = [...inds.values()].flat(), shs = shDe(l.kid);
+    let totN = 0, insN = 0;
+    shs.forEach(x => { const v = levEv(l.prj, x.id); totN += v?.n || x.n || 0; insN += nInsp(v); });
+    const tiles = [[todas.length, 'hallazgos'], ...TIPOS.map(t => [todas.filter(y => y.k === t).length, t]), [`${insN}/${totN}`, 'niveles inspeccionados']];
+    if (!paraCliente) tiles.push([todas.filter(y => !completa(y)).length, 'con fotos pendientes']);
+    c.resumenCal = {
+      titulo: `Resumen de hallazgos · ${cal(l.kid)?.nombre || ''}`, tiles,
+      shs: shs.map(x => {
+        const v = levEv(l.prj, x.id), ys = v ? inds.get(v.id) || [] : [], n = v?.n || x.n, cnt = {};
+        ys.forEach(y => cnt[y.n] = (cnt[y.n] || 0) + 1);
+        return {
+          nombre: x.nombre, estado: v ? `${nInsp(v)}/${n} niveles inspeccionados · ${plural(ys.length, 'hallazgo', 'hallazgos')}` : 'sin iniciar',
+          niveles: range(n).map(j => ({ nom: (x.nn || [])[j - 1] || 'N' + j, ok: !!inspN(v, j), n: cnt[j] || 0 })),
+          filas: ys.map(y => [codigo(y), (x.nn || [])[y.n - 1] || 'N' + y.n, pad(y.p), `T${pad(y.c)}-${pad(y.c + 1)}`, tipoTxt(y), y.nota || ''])
+        };
+      })
+    };
+  }
   // croquis de la caldera con el sobrecalentador marcado
   const k = cal(l.kid);
   if (k && (k.img || shDe(k.id).length)) {
