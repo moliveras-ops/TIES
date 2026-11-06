@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '1.4';
+const VERSION = '1.5';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -347,12 +347,18 @@ function vistaCaldera() {
     `<h3>Sobrecalentadores</h3>` +
     (shs.map(x => itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), dimTxt(x) + ((x.nn || []).length ? ' · ' + esc(x.nn.join(', ')) : ''), true)).join('')
       || '<p class="vacio">Agrega los sobrecalentadores de esta caldera: paneles, tubos y niveles de candados.</p>') +
-    `<button class="btn pri" id="bSh">${ic('agregar')}Agregar sobrecalentador</button>` +
+    `<button class="btn pri" id="bSh">${ic('agregar')}Agregar sobrecalentador</button>
+    <h3>Croquis</h3>${shs.length ? `<div class="cq chico">${svgCroquis(k.id)}</div>` : ''}
+    ${k.img ? `<img class="cqfoto" id="kImgV" src="${k.img}" alt="">` : '<p class="nota">Opcional: sube la imagen del croquis de la caldera (por ejemplo, la del plan de inspección) para verla junto a los candados.</p>'}
+    <div class="acciones"><button class="btn" id="kImg">${ic('galeria')}${k.img ? 'Cambiar imagen' : 'Subir imagen del croquis'}</button>${k.img ? `<button class="btn peligro" id="kImgDel">${ic('borrar')}Quitar</button>` : ''}</div>` +
     (ant.length ? `<h3>Levantamientos anteriores</h3>` + ant.map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), dimTxt(l))).join('') : '') +
     acciones();
   app.querySelectorAll('[data-sid]').forEach(b => b.onclick = () => formSobre(sobre(b.dataset.sid), k));
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
   $('#bSh').onclick = () => formSobre(null, k);
+  $('#kImg').onclick = () => { S.camK = null; S.croquisK = k.id; const i = $('#gal'); i.value = ''; i.click(); };
+  if ($('#kImgDel')) $('#kImgDel').onclick = () => { if (confirm('¿Quitar la imagen del croquis?')) updateDoc(catRef('calderas', k.id), { img: null }).catch(errEsc); };
+  if ($('#kImgV')) $('#kImgV').onclick = () => visor(k.img, { titulo: 'Croquis · ' + k.nombre, nombre: `Croquis ${limpio(k.nombre)}.jpg` });
   $('#bRen').onclick = () => formNombre('Renombrar caldera', k.nombre, '', nombre => updateDoc(catRef('calderas', k.id), { nombre }).catch(errEsc));
   $('#bDel').onclick = () => {
     if (shs.length || usada) return toast('Primero elimina sus sobrecalentadores y sus levantamientos');
@@ -389,14 +395,17 @@ function vistaEventoCaldera() {
   const e = proy(S.ruta.prj), k = cal(S.ruta.kid); if (!e || !k) return ir({ cid: S.ruta.cid, pid: S.ruta.pid, prj: S.ruta.prj });
   titulo(`${k.nombre} · ${e.nombre}`);
   const shs = shDe(k.id), levs = levsDe(e.id, k.id), huerfanos = levs.filter(l => !shs.some(x => x.id === l.sid));
+  const cq = bloqueCroquis(k.id);
   app.innerHTML = cabSimple(esc(k.nombre), `${esc(e.nombre)} · ${esc(pla(e.pid)?.nombre || '')}`) +
+    `<div class="${cq ? 'vgr siempre' : ''}">${cq ? `<aside class="lado">${cq}</aside>` : ''}<div>` +
     `<h3>Sobrecalentadores</h3>` +
     (shs.map(x => {
       const l = levs.find(l => l.sid === x.id);
       return itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), l ? `Iniciado por ${esc(l.u)} · ${fecha(l.c)}` : `${dimTxt(x)} · sin iniciar`);
     }).join('') || '<p class="vacio">Esta caldera no tiene sobrecalentadores.</p>') +
     huerfanos.map(l => itemNav(`data-id="${l.id}"`, 'grilla', esc(l.nombre), 'Sobrecalentador eliminado de la caldera')).join('') +
-    `<button class="btn" id="bCfg">${ic('ajustes')}Configurar sobrecalentadores</button>`;
+    `<button class="btn" id="bCfg">${ic('ajustes')}Configurar sobrecalentadores</button></div></div>`;
+  conectarCroquis(k.id, e.id);
   app.querySelectorAll('[data-sid]').forEach(b => b.onclick = () => abrirSobre(e, k, sobre(b.dataset.sid)));
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
   $('#bCfg').onclick = () => ir({ cid: k.cid, pid: k.pid, kid: k.id });
@@ -582,13 +591,75 @@ function cabNivel(sub, chips) {
   return `<div class="cabniv"><div class="ctit">${sub}</div></div><div class="niveles fijo">${chips}</div>`;
 }
 
+// ---------- croquis de la caldera: sobrecalentadores lado a lado, N1 arriba ----------
+const CQ = { m: 8, w: 50, g: 16, top: 42, h: 300 };
+const abrevSH = t => String(t).replace(/sobrecalentador/i, 'SH').replace(/\s+/g, ' ').trim();
+function partirTxt(t, max = 9) {
+  const out = []; let lin = '';
+  for (const p of t.split(' ')) { if ((lin + ' ' + p).trim().length > max && lin) { out.push(lin); lin = p; } else lin = (lin + ' ' + p).trim(); }
+  if (lin) out.push(lin); return out.slice(0, 3);
+}
+function svgCroquis(kid, sidAct, nivAct, cnt = {}) {
+  const shs = shDe(kid), { m, w, g, top, h } = CQ, W = m * 2 + shs.length * (w + g) - g, H = top + h + 22;
+  let s = `<line x1="0" y1="${top}" x2="${W}" y2="${top}" stroke="#7b8fa4" stroke-width="2"/>`;
+  shs.forEach((x, i) => {
+    const x0 = m + i * (w + g), act = x.id === sidAct, n = x.n || 1, paso = h / n;
+    const lab = partirTxt(abrevSH(x.nombre));
+    s += `<g data-col="${i}"><rect x="${x0}" y="2" width="${w}" height="${top - 6}" rx="4" fill="${act ? '#F5A300' : '#dfe6ee'}"/>` +
+      lab.map((t, j) => `<text x="${x0 + w / 2}" y="${(top - 4) / 2 + (j - (lab.length - 1) / 2) * 10}" class="cl">${esc(t)}</text>`).join('') +
+      `<rect x="${x0}" y="${top}" width="${w}" height="${h}" fill="${act ? '#55606d' : '#7a8592'}"/>`;
+    for (let k = x0 + 3; k < x0 + w; k += 4) s += `<line x1="${k}" y1="${top}" x2="${k}" y2="${top + h}" stroke="${act ? '#8a96a3' : '#a3adb8'}" stroke-width="1"/>`;
+    for (let k = 0; k < 3; k++) s += `<path d="M${x0 + 5 + k * 14} ${top + h} a6 6 0 0 0 12 0" fill="none" stroke="#8a96a3" stroke-width="2"/>`;
+    for (let j = 1; j <= n; j++) {
+      const y = top + (j - 0.5) * paso, on = act && j === nivAct;
+      s += `<line x1="${x0 - 3}" y1="${y}" x2="${x0 + w + 3}" y2="${y}" stroke="${on ? '#F5A300' : '#0b2a5c'}" stroke-width="${on ? 5 : 2.2}"/>`;
+      if (act) {
+        const t = ((x.nn || [])[j - 1] || 'N' + j).slice(0, 7);
+        s += `<rect x="${x0 + 4}" y="${y - 7}" width="${w - 8}" height="14" rx="3" fill="${on ? '#F5A300' : '#fff'}"/><text x="${x0 + w / 2}" y="${y}" class="cn">${esc(t)}</text>`;
+        if (cnt[j]) s += `<circle cx="${x0 + w + 2}" cy="${y}" r="7" fill="#D32F2F"/><text x="${x0 + w + 2}" y="${y}" class="cc">${cnt[j]}</text>`;
+      }
+    }
+    s += '</g>';
+  });
+  const css = 'text{font-family:system-ui,Roboto,Arial,sans-serif;text-anchor:middle;dominant-baseline:central}.cl{font-size:8.5px;font-weight:700;fill:#0E3A5F}.cn{font-size:8px;font-weight:700;fill:#0E3A5F}.cc{font-size:8px;font-weight:700;fill:#fff}';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" class="cqsvg"><style>${css}</style>${s}</svg>`;
+}
+// toque en el croquis: otro sobrecalentador → abrirlo en el evento; el activo → cambiar de nivel
+function tocarCroquis(e, el, kid, prj) {
+  const sv = el.querySelector('svg'); if (!sv) return;
+  const shs = shDe(kid), { m, w, g, top, h } = CQ, W = m * 2 + shs.length * (w + g) - g;
+  const r = sv.getBoundingClientRect(), k = W / r.width, xu = (e.clientX - r.left) * k, yu = (e.clientY - r.top) * k;
+  const i = Math.floor((xu - m + g / 2) / (w + g)), x = shs[i]; if (!x) return;
+  if (S.lev && x.id === S.lev.sid) {
+    if (yu < top) return;
+    const j = Math.min(S.lev.n, Math.max(1, Math.floor((yu - top) / (h / (x.n || 1))) + 1));
+    cerrarModal(); S.nivel = j; ls.set('ties_nivel_' + S.lev.id, j); return render();
+  }
+  const ev = proy(prj); if (!ev) return;
+  cerrarModal();
+  if (S.lev) { S.unsubInds?.(); S.unsubInds = null; S.lev = null; }
+  abrirSobre(ev, cal(kid), x);
+}
+function bloqueCroquis(kid) {
+  const k = cal(kid); if (!k || !shDe(kid).length) return '';
+  return `<div class="cqtit">Croquis · ${esc(k.nombre)}</div><div class="cq" id="cq">${svgCroquis(kid, S.lev?.sid, S.nivel, S.lev ? conteoNiveles() : {})}</div>
+    ${k.img ? `<button class="cqimg" id="cqImg"><img src="${k.img}" alt=""><span>Croquis de la caldera</span></button>` : ''}`;
+}
+function conectarCroquis(kid, prj) {
+  app.querySelectorAll('#cq').forEach(c => c.onclick = e => tocarCroquis(e, c, kid, prj));
+  const b = $('#cqImg'); if (b) b.onclick = () => visor(cal(kid).img, { titulo: 'Croquis · ' + cal(kid).nombre, nombre: `Croquis ${limpio(cal(kid).nombre)}.jpg` });
+}
+
 function vistaGrilla() {
   const l = S.lev, n = S.nivel, cnt = conteoNiveles();
   const chips = range(l.n).map(i => `<button class="chip ${i === n ? 'on' : ''}" data-n="${i}">${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
-  return cabNivel(`<b>Candados — ${esc(nivelNom(n))}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, chips) +
-    `<div class="gwrap" id="gwrap">${svgNivel(n)}</div>
+  const cq = l.prj && l.sid ? bloqueCroquis(l.kid) : '';
+  const bCq = cq ? `<button class="chip cqchip" id="bCq">${ic('caldera', 22)}Croquis</button>` : '';
+  return cabNivel(`<b>Candados — ${esc(nivelNom(n))}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, bCq + chips) +
+    `<div class="${cq ? 'vgr' : ''}">${cq ? `<aside class="lado">${cq}</aside>` : ''}<div>
+    <div class="gwrap" id="gwrap">${svgNivel(n)}</div>
     <div class="leyenda"><span class="ley"><span class="sw ind"></span>sin foto</span><span class="ley"><span class="sw foto"></span>con foto</span>
-      <span>${l.t > 16 ? 'Toca un panel para abrirlo en grande.' : 'Toca el candado entre dos tubos, o el nombre del panel para verlo en grande.'}</span></div>`;
+      <span>${l.t > 16 ? 'Toca un panel para abrirlo en grande.' : 'Toca el candado entre dos tubos, o el nombre del panel para verlo en grande.'}</span></div></div></div>`;
 }
 
 function vistaLista() {
@@ -611,6 +682,15 @@ function barraInferior() {
 
 function conectar() {
   app.querySelectorAll('[data-n]').forEach(b => b.onclick = () => { S.nivel = +b.dataset.n; ls.set('ties_nivel_' + S.lev.id, S.nivel); render(); });
+  if (S.lev.prj && S.lev.kid) {
+    conectarCroquis(S.lev.kid, S.lev.prj);
+    const bc = $('#bCq'); if (bc) bc.onclick = () => {
+      hoja(`<div class="dcab"><h3>Croquis · ${esc(cal(S.lev.kid)?.nombre || '')}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
+        <p class="nota">Toca un nivel para verlo, u otro sobrecalentador para abrirlo.</p><div class="cq grande" id="cqH">${svgCroquis(S.lev.kid, S.lev.sid, S.nivel, conteoNiveles())}</div>
+        ${cal(S.lev.kid)?.img ? `<img class="cqfoto" src="${cal(S.lev.kid).img}" alt="">` : ''}`);
+      const c = $('#cqH'); c.onclick = e => tocarCroquis(e, c, S.lev.kid, S.lev.prj);
+    };
+  }
   app.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { S.filtroN = +b.dataset.f; render(); });
   app.querySelectorAll('[data-k]').forEach(b => b.onclick = () => detalle(b.dataset.k));
   const g = $('#gwrap');
@@ -684,6 +764,13 @@ function abrirCamara(k, galeria) {
 }
 
 $('#cam').onchange = $('#gal').onchange = async e => {
+  if (S.croquisK) {
+    const kid = S.croquisK, f = e.target.files[0]; S.croquisK = null; e.target.value = '';
+    if (!f) return;
+    try { const d = await comprimir(f, null); updateDoc(catRef('calderas', kid), { img: d }).catch(errEsc); toast('Croquis guardado'); }
+    catch (err) { toast('No se pudo procesar la imagen: ' + err.message, 5000); }
+    return;
+  }
   const files = [...e.target.files], k = S.camK; e.target.value = '';
   if (!k || !files.length || !S.lev) return;
   for (const f of files) {
