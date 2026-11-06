@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '1.6';
+const VERSION = '1.7';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -358,7 +358,7 @@ function vistaCaldera() {
     (shs.map(x => itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), dimTxt(x) + ((x.nn || []).length ? ' · ' + esc(x.nn.join(', ')) : ''), true)).join('')
       || '<p class="vacio">Agrega los sobrecalentadores de esta caldera: paneles, tubos y niveles de candados.</p>') +
     `<button class="btn pri" id="bSh">${ic('agregar')}Agregar sobrecalentador</button>
-    <h3>Croquis</h3>${shs.length ? `<div class="cq chico">${svgCroquis(k.id)}</div>` : ''}
+    <h3>Croquis</h3>${shs.length ? `<div class="cq chico">${comoImg(svgCroquis(k.id))}</div>` : ''}
     ${k.img ? `<img class="cqfoto" id="kImgV" src="${k.img}" alt="">` : '<p class="nota">Opcional: sube la imagen del croquis de la caldera (por ejemplo, la del plan de inspección) para verla junto a los candados.</p>'}
     <div class="acciones"><button class="btn" id="kImg">${ic('galeria')}${k.img ? 'Cambiar imagen' : 'Subir imagen del croquis'}</button>${k.img ? `<button class="btn peligro" id="kImgDel">${ic('borrar')}Quitar</button>` : ''}</div>` +
     (ant.length ? `<h3>Levantamientos anteriores</h3>` + ant.map(l => itemNav(`data-id="${l.id}"`, 'proyecto', esc(l.nombre), dimTxt(l))).join('') : '') +
@@ -550,11 +550,15 @@ function conteoNiveles() {
 // ---------- dibujo de tubos y candados (igual que BoilerImage) ----------
 // unidades: etiqueta L, un tubo cada u, alto de fila rh; el candado c va entre los tubos c y c+1
 const G = { L: 34, u: 20, rh: 34, top: 14 };
-const SVG_CSS = '.tb{fill:#e2e8ef;stroke:#7b8fa4;stroke-width:1.2}.tbi{fill:#fff}.fz{fill:#f2f5f8}' +
-  '.cv{fill:#fff;stroke:#7b8fa4;stroke-width:1.1}.ci{fill:#F48FB1;stroke:#c2185b;stroke-width:1}.cf{fill:#D32F2F;stroke:#8e1b1b;stroke-width:1}' +
+const SVG_CSS = '.tb{fill:#dde6ef;stroke:#1f3a57;stroke-width:1.6}.tbi{fill:#fff}.fz{fill:#eef3f8}.fondo{fill:#fff}' +
+  '.cv{fill:#fff;stroke:#1f3a57;stroke-width:1.4}.ci{fill:#F48FB1;stroke:#c2185b;stroke-width:1}.cf{fill:#D32F2F;stroke:#8e1b1b;stroke-width:1}' +
   'text{font-family:system-ui,Roboto,Arial,sans-serif;text-anchor:middle;dominant-baseline:central}' +
   '.ti,.tf{font-size:8.5px;font-weight:700}.ti{fill:#5a0d26}.tf{fill:#fff}' +
-  '.pl{font-size:10.5px;font-weight:700;fill:#33475b;text-anchor:start}.pl.r{fill:#D32F2F}.tn{font-size:7px;fill:#7b8a99}';
+  '.pl{font-size:10.5px;font-weight:700;fill:#0E3A5F;text-anchor:start}.pl.r{fill:#D32F2F}.tn{font-size:7px;fill:#33475b}';
+
+// Los dibujos se muestran como imagen: el modo oscuro forzado del teléfono invierte el HTML pero no las imágenes
+const comoImg = (svg, estilo = '') => `<img class="dib" alt="" draggable="false" style="${estilo}" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}">`;
+const dibujo = el => el?.querySelector('img.dib, svg');
 
 function filaSVG(n, p, y, L) {
   const { u, rh } = G, t = S.lev.t, my = y + rh / 2;
@@ -587,7 +591,7 @@ function svgNivel(n, w, h) {
     if (p % 2 === 0) s += `<rect x="0" y="${y}" width="${W}" height="${rh}" class="fz"/>`;
     s += `<text x="2" y="${y + rh / 2}" class="pl${panelCon(n, p) ? ' r' : ''}">P${pad(p)}</text>` + filaSVG(n, p, y, L);
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}"${w ? ` width="${w}" height="${h}"` : ''}><style>${SVG_CSS}</style>${s}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${w || W * 2}" height="${h || H * 2}"><style>${SVG_CSS}</style><rect class="fondo" width="${W}" height="${H}"/>${s}</svg>`;
 }
 
 // candado bajo el dedo (null = fuera de la fila)
@@ -632,11 +636,11 @@ function svgCroquis(kid, sidAct, nivAct, cnt = {}) {
     s += '</g>';
   });
   const css = 'text{font-family:system-ui,Roboto,Arial,sans-serif;text-anchor:middle;dominant-baseline:central}.cl{font-size:8.5px;font-weight:700;fill:#0E3A5F}.cn{font-size:8px;font-weight:700;fill:#0E3A5F}.cc{font-size:8px;font-weight:700;fill:#fff}';
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" class="cqsvg"><style>${css}</style>${s}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W * 2}" height="${H * 2}"><style>${css}</style><rect width="${W}" height="${H}" fill="#fff"/>${s}</svg>`;
 }
 // toque en el croquis: otro sobrecalentador → abrirlo en el evento; el activo → cambiar de nivel
 function tocarCroquis(e, el, kid, prj) {
-  const sv = el.querySelector('svg'); if (!sv) return;
+  const sv = dibujo(el); if (!sv) return;
   const shs = shDe(kid), { m, w, g, top, h } = CQ, W = m * 2 + shs.length * (w + g) - g;
   const r = sv.getBoundingClientRect(), k = W / r.width, xu = (e.clientX - r.left) * k, yu = (e.clientY - r.top) * k;
   const i = Math.floor((xu - m + g / 2) / (w + g)), x = shs[i]; if (!x) return;
@@ -656,7 +660,7 @@ function bloqueCroquis(kid) {
     ${k.img ? `<button class="cqimg" id="cqImg"><img src="${k.img}" alt=""><span>Croquis referencial · toca para ampliar</span></button>` : ''}
     <button class="btn chico cqcarga" id="cqCarga">${ic('galeria')}${k.img ? 'Cambiar croquis referencial' : 'Cargar croquis referencial'}</button>
     <div class="cqtit sub">Niveles · toca para navegar</div>
-    <div class="cq" id="cq">${svgCroquis(kid, S.lev?.sid, S.nivel, S.lev ? conteoNiveles() : {})}</div>`;
+    <div class="cq" id="cq">${comoImg(svgCroquis(kid, S.lev?.sid, S.nivel, S.lev ? conteoNiveles() : {}))}</div>`;
 }
 function cargarCroquis(kid) { S.camK = null; S.croquisK = kid; const i = $('#gal'); i.value = ''; i.click(); }
 function conectarCroquis(kid, prj) {
@@ -672,7 +676,7 @@ function vistaGrilla() {
   const bCq = cq ? `<button class="chip cqchip" id="bCq">${ic('caldera', 22)}Croquis</button>` : '';
   return cabNivel(`<b>Candados — ${esc(nivelNom(n))}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, bCq + chips) +
     `<div class="${cq ? 'vgr' : ''}">${cq ? `<aside class="lado">${cq}</aside>` : ''}<div>
-    <div class="gwrap" id="gwrap">${svgNivel(n)}</div>
+    <div class="gwrap" id="gwrap">${comoImg(svgNivel(n))}</div>
     <div class="leyenda"><span class="ley"><span class="sw ind"></span>falta foto general o de detalle</span><span class="ley"><span class="sw foto"></span>con general y detalle</span>
       <span>${l.t > 16 ? 'Toca un panel para abrirlo en grande.' : 'Toca el candado entre dos tubos, o el nombre del panel para verlo en grande.'}</span></div></div></div>`;
 }
@@ -703,7 +707,7 @@ function conectar() {
       hoja(`<div class="dcab"><h3>Croquis · ${esc(cal(S.lev.kid)?.nombre || '')}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
         ${cal(S.lev.kid)?.img ? `<img class="cqfoto" id="cqHImg" src="${cal(S.lev.kid).img}" alt="">` : ''}
         <button class="btn chico" id="cqHCarga">${ic('galeria')}${cal(S.lev.kid)?.img ? 'Cambiar croquis referencial' : 'Cargar croquis referencial'}</button>
-        <p class="nota">Toca un nivel para verlo, u otro sobrecalentador para abrirlo.</p><div class="cq grande" id="cqH">${svgCroquis(S.lev.kid, S.lev.sid, S.nivel, conteoNiveles())}</div>`);
+        <p class="nota">Toca un nivel para verlo, u otro sobrecalentador para abrirlo.</p><div class="cq grande" id="cqH">${comoImg(svgCroquis(S.lev.kid, S.lev.sid, S.nivel, conteoNiveles()))}</div>`);
       const c = $('#cqH'), kid = S.lev.kid; c.onclick = e => tocarCroquis(e, c, kid, S.lev.prj);
       $('#cqHCarga').onclick = () => { cerrarModal(); cargarCroquis(kid); };
       const im = $('#cqHImg'); if (im) im.onclick = () => visor(cal(kid).img, { titulo: 'Croquis · ' + cal(kid).nombre, nombre: `Croquis ${limpio(cal(kid).nombre)}.jpg` });
@@ -713,7 +717,7 @@ function conectar() {
   app.querySelectorAll('[data-k]').forEach(b => b.onclick = () => detalle(b.dataset.k));
   const g = $('#gwrap');
   if (g) g.onclick = e => {
-    const l = S.lev, { xu, p, c, yu } = puntoSVG(e, g.querySelector('svg'), G.L, G.L + l.t * G.u);
+    const l = S.lev, { xu, p, c, yu } = puntoSVG(e, dibujo(g), G.L, G.L + l.t * G.u);
     if (yu < 0 || p < 1 || p > l.p) return;
     if (l.t > 16 || xu < G.L - 4 || c < 1 || c > l.t - 1) return verPanel(p);
     tocarCandado(p, c);
@@ -730,7 +734,7 @@ function conectar() {
 // ---------- panel en grande ----------
 function svgPanel(n, p) {
   const L = 4, W = L * 2 + S.lev.t * G.u, H = G.top + G.rh;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" style="width:${Math.max(S.lev.t * 46, 300)}px"><style>${SVG_CSS}</style>${numerosTubo(L, G.top / 2, true)}${filaSVG(n, p, G.top, L)}</svg>`;
+  return comoImg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W * 2}" height="${H * 2}"><style>${SVG_CSS}</style><rect class="fondo" width="${W}" height="${H}"/>${numerosTubo(L, G.top / 2, true)}${filaSVG(n, p, G.top, L)}</svg>`, `width:${Math.max(S.lev.t * 46, 300)}px`);
 }
 
 function verPanel(p) {
@@ -746,7 +750,7 @@ function pintarPanel() {
   const n = S.nivel, p = S.panel, sx = w.scrollLeft;
   w.innerHTML = svgPanel(n, p); w.scrollLeft = sx;
   w.onclick = e => {
-    const { c, p: fila } = puntoSVG(e, w.querySelector('svg'), 4, 8 + S.lev.t * G.u);
+    const { c, p: fila } = puntoSVG(e, dibujo(w), 4, 8 + S.lev.t * G.u);
     if (fila === 1 && c >= 1 && c < S.lev.t) tocarCandado(p, c);
   };
   const xs = range(S.lev.t - 1).map(c => S.inds.get(key(n, p, c))).filter(Boolean);
