@@ -8,8 +8,32 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '1.0';
+const VERSION = '1.1';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
+
+// ---------- íconos Material (Apache 2.0) ----------
+const IC = {
+  atras: 'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z',
+  mas: 'M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
+  cerrar: 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+  agregar: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+  lista: 'M3 5v14h18V5H3zm4 2v2H5V7h2zm-2 6v-2h2v2H5zm0 2h2v2H5v-2zm14 2H9v-2h10v2zm0-4H9v-2h10v2zm0-4H9V7h10v2z',
+  grilla: 'M3 3v8h8V3H3zm6 6H5V5h4v4zm-6 4v8h8v-8H3zm6 6H5v-4h4v4zm4-16v8h8V3h-8zm6 6h-4V5h4v4zm-6 4v8h8v-8h-8zm6 6h-4v-4h4v4z',
+  lamina: 'M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4.86 8.86-3 3.87L9 13.14 6 17h12l-3.86-5.14z',
+  compartir: 'M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z',
+  ajustes: 'M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z',
+  editar: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
+  camara: 'M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2 7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z',
+  galeria: 'M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2zm-11-4 2.03 2.71L16 11l4 5H8l3-4zM2 6v14c0 1.1.9 2 2 2h14v-2H4V6H2z',
+  mic: 'M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z',
+  borrar: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
+  bajar: 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z',
+  planilla: 'M3 3v18h18V3H3zm8 16H5v-6h6v6zm0-8H5V5h6v6zm8 8h-6v-6h6v6zm0-8h-6V5h6v6z',
+  zip: 'M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5 6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z',
+  instalar: 'M17 1.01 7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14zm-1-6h-3V8h-2v5H8l4 4 4-4z',
+  salir: 'M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z'
+};
+const ic = (n, s = 24) => `<svg class="ic" viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true"><path d="${IC[n]}"/></svg>`;
 
 // ---------- utilidades ----------
 const $ = s => document.querySelector(s);
@@ -56,8 +80,10 @@ const fotosCol = k => collection(db, 'levantamientos', S.lev.id, 'indicaciones',
 const S = {
   uid: null, nombre: ls.get('ties_nombre', ''), levs: [], lev: null, levId: ls.get('ties_lev', null),
   nivel: 1, inds: new Map(), pend: 0, vista: 'grilla', filtroN: 0, primera: true,
-  detalle: null, fotos: [], notaSucia: false, camK: null, ingresando: false, instalar: null
+  detalle: null, fotos: [], notaSucia: false, camK: null, ingresando: false, instalar: null, panel: null
 };
+$('#atras').innerHTML = ic('atras', 28);
+$('#menuBtn').innerHTML = ic('mas', 28);
 
 // ---------- navegación con el botón Atrás de Android ----------
 function guardia() { if (!history.state?.ties) history.pushState({ ties: 1 }, ''); }
@@ -162,7 +188,7 @@ function inicio() {
 function home() {
   S.lev = null; titulo('TIES');
   app.innerHTML = `<div class="hola">Hola, <b>${esc(S.nombre)}</b></div>
-    <button class="btn pri" id="bNuevo">＋ Nuevo levantamiento</button>
+    <button class="btn pri" id="bNuevo">${ic('agregar')}Nuevo levantamiento</button>
     <h3>Levantamientos</h3>
     ${S.levs.length ? S.levs.map(l => `<button class="item" data-id="${l.id}"><b>${esc(l.nombre)}</b>
       <span>${l.p} paneles · ${l.n} niveles · ${l.t} tubos</span>
@@ -215,6 +241,7 @@ function abrirLev(id) {
     S.inds = m; S.pend = pend; estado();
     render();
     if (S.detalle) refrescarDetalle();
+    if (S.panel) pintarPanel();
   }, e => toast('Error: ' + (e.code || e.message), 6000));
   render();
 }
@@ -229,9 +256,11 @@ function cerrarLev() {
 function render() {
   if (!S.lev) return;
   S.nivel = Math.min(Math.max(1, S.nivel), S.lev.n);
-  const w = $('#gwrap'), sx = w?.scrollLeft || 0, sy = w?.scrollTop || 0, wy = window.scrollY;
+  const w = $('#gwrap'), sx = w?.scrollLeft || 0, wy = window.scrollY;
   app.innerHTML = (S.vista === 'lista' ? vistaLista() : vistaGrilla()) + barraInferior();
-  const w2 = $('#gwrap'); if (w2) { w2.scrollLeft = sx; w2.scrollTop = sy; }
+  const w2 = $('#gwrap'); if (w2) w2.scrollLeft = sx;
+  const ch = $('.niveles .chip.on'), fila = ch?.parentElement;
+  if (ch) fila.scrollLeft += ch.getBoundingClientRect().left - fila.getBoundingClientRect().left - (fila.clientWidth - ch.offsetWidth) / 2;
   window.scrollTo(0, wy);
   conectar();
 }
@@ -240,61 +269,142 @@ function conteoNiveles() {
   const c = {}; for (const x of S.inds.values()) c[x.n] = (c[x.n] || 0) + 1; return c;
 }
 
-// celda lo más ancha posible sin bajar de 34 px (pensado para guantes)
-const anchoCelda = nc => Math.max(34, Math.min(56, Math.floor((Math.min(innerWidth, 900) - 24 - 50 - 6) / nc)));
-addEventListener('resize', () => { if (S.lev && S.vista === 'grilla') render(); });
+// ---------- dibujo de tubos y candados (igual que BoilerImage) ----------
+// unidades: etiqueta L, un tubo cada u, alto de fila rh; el candado c va entre los tubos c y c+1
+const G = { L: 34, u: 20, rh: 34, top: 14 };
+const SVG_CSS = '.tb{fill:#dfe6ee;stroke:#93a3b4;stroke-width:1.1}.tbi{fill:#fff}' +
+  '.cv{fill:#fff;stroke:#93a3b4;stroke-width:1}.ci{fill:#F48FB1;stroke:#c2185b;stroke-width:1}.cf{fill:#D32F2F;stroke:#8e1b1b;stroke-width:1}' +
+  'text{font-family:system-ui,Roboto,Arial,sans-serif;text-anchor:middle;dominant-baseline:central}' +
+  '.ti,.tf{font-size:8.5px;font-weight:700}.ti{fill:#5a0d26}.tf{fill:#fff}' +
+  '.pl{font-size:10.5px;font-weight:700;fill:#33475b;text-anchor:start}.pl.r{fill:#D32F2F}.tn{font-size:7px;fill:#7b8a99}';
+
+function filaSVG(n, p, y, L) {
+  const { u, rh } = G, t = S.lev.t, my = y + rh / 2;
+  let s = '';
+  for (let i = 1; i <= t; i++) {
+    const cx = L + (i - 0.5) * u;
+    s += `<rect x="${cx - 5.5}" y="${y + 3}" width="11" height="${rh - 6}" rx="5.5" class="tb"/><rect x="${cx - 1.5}" y="${y + 8}" width="3" height="${rh - 16}" rx="1.5" class="tbi"/>`;
+  }
+  for (let c = 1; c < t; c++) {
+    const cx = L + c * u, x = S.inds.get(key(n, p, c));
+    s += x
+      ? `<rect x="${cx - 7.5}" y="${my - 6.5}" width="15" height="13" rx="2.5" class="${x.nf > 0 ? 'cf' : 'ci'}"/><text x="${cx}" y="${my + 0.5}" class="${x.nf > 0 ? 'tf' : 'ti'}">${esc(ini(x))}</text>`
+      : `<rect x="${cx - 6.5}" y="${my - 4}" width="13" height="8" rx="2" class="cv"/>`;
+  }
+  return s;
+}
+
+const numerosTubo = (L, y, todos) => {
+  const t = S.lev.t, paso = todos ? 1 : t > 30 ? 5 : t > 16 ? 2 : 1;
+  return range(t).filter(i => i === 1 || i % paso === 0).map(i => `<text x="${L + (i - 0.5) * G.u}" y="${y}" class="tn">${i}</text>`).join('');
+};
+const panelCon = (n, p) => range(S.lev.t - 1).some(c => S.inds.has(key(n, p, c)));
+
+// nivel completo: se usa en pantalla y en la lámina (w, h = tamaño en px para la lámina)
+function svgNivel(n, w, h) {
+  const l = S.lev, { L, u, rh, top } = G, W = L + l.t * u, H = top + l.p * rh;
+  let s = numerosTubo(L, top / 2);
+  for (let p = 1; p <= l.p; p++) {
+    const y = top + (p - 1) * rh;
+    s += `<text x="2" y="${y + rh / 2}" class="pl${panelCon(n, p) ? ' r' : ''}">P${pad(p)}</text>` + filaSVG(n, p, y, L);
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}"${w ? ` width="${w}" height="${h}"` : ''}><style>${SVG_CSS}</style>${s}</svg>`;
+}
+
+// candado bajo el dedo (null = fuera de la fila)
+function puntoSVG(e, el, L, ancho) {
+  const r = el.getBoundingClientRect(), k = ancho / r.width;
+  const xu = (e.clientX - r.left) * k, yu = (e.clientY - r.top) * k - G.top;
+  return { xu, p: Math.floor(yu / G.rh) + 1, c: Math.round((xu - L) / G.u), yu };
+}
+
+function cabNivel(sub, chips) {
+  return `<div class="cabniv"><div class="ctit">${sub}</div><div class="niveles">${chips}</div></div>`;
+}
 
 function vistaGrilla() {
-  const l = S.lev, n = S.nivel, nc = l.t - 1, cnt = conteoNiveles();
-  let h = `<div class="niveles">${range(l.n).map(i => `<button class="chip ${i === n ? 'on' : ''}" data-n="${i}">N${i}${cnt[i] ? ` <i>${cnt[i]}</i>` : ''}</button>`).join('')}</div>
-    <div class="leyenda"><span class="sw ind"></span>sin foto <span class="sw foto"></span>con foto · toca el candado entre dos tubos</div>
-    <div class="gwrap" id="gwrap"><div class="grilla" style="grid-template-columns:var(--lw) repeat(${nc},${anchoCelda(nc)}px)">
-    <div class="gh esq">Panel</div>${range(nc).map(c => `<div class="gh${c === nc ? ' fin' : ''}">${c}-${c + 1}</div>`).join('')}`;
-  for (let p = 1; p <= l.p; p++) {
-    h += `<div class="gl">P${pad(p)}</div>`;
-    for (let c = 1; c <= nc; c++) {
-      const x = S.inds.get(key(n, p, c));
-      h += `<button class="cand${x ? (x.nf > 0 ? ' foto' : ' ind') : ''}${c === nc ? ' fin' : ''}" data-p="${p}" data-c="${c}">${x ? ini(x) : ''}</button>`;
-    }
-  }
-  return h + `</div></div>`;
+  const l = S.lev, n = S.nivel, cnt = conteoNiveles();
+  const chips = range(l.n).map(i => `<button class="chip ${i === n ? 'on' : ''}" data-n="${i}">N${i}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
+  return cabNivel(`<b>Candados — Nivel ${n}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, chips) +
+    `<div class="gwrap" id="gwrap">${svgNivel(n)}</div>
+    <div class="leyenda"><span class="sw ind"></span>sin foto <span class="sw foto"></span>con foto ·
+      ${l.t > 16 ? 'toca un panel para abrirlo en grande' : 'toca el candado entre dos tubos (o el nombre del panel para verlo en grande)'}</div>`;
 }
 
 function vistaLista() {
   const l = S.lev, f = S.filtroN, cnt = conteoNiveles();
   const xs = [...S.inds.values()].filter(x => !f || x.n === f).sort(ordenar);
   const porTipo = {}; xs.forEach(x => porTipo[x.k] = (porTipo[x.k] || 0) + 1);
-  return `<div class="niveles"><button class="chip ${!f ? 'on' : ''}" data-f="0">Todos <i>${S.inds.size}</i></button>
-    ${range(l.n).map(i => `<button class="chip ${i === f ? 'on' : ''}" data-f="${i}">N${i}${cnt[i] ? ` <i>${cnt[i]}</i>` : ''}</button>`).join('')}</div>
-    <div class="resumen"><b>${xs.length}</b> indicaciones${Object.keys(porTipo).length ? ' · ' + TIPOS.filter(t => porTipo[t]).map(t => `${t} ${porTipo[t]}`).join(' · ') : ''}</div>
-    ${xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${x.nf > 0 ? 'foto' : 'ind'}">${ini(x)}</span>
+  const chips = `<button class="chip ${!f ? 'on' : ''}" data-f="0">Todos<i>${S.inds.size}</i></button>` +
+    range(l.n).map(i => `<button class="chip ${i === f ? 'on' : ''}" data-f="${i}">N${i}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
+  return cabNivel(`<b>Indicaciones${f ? ' — Nivel ' + f : ''}</b><span>${xs.length}${Object.keys(porTipo).length ? ' · ' + TIPOS.filter(t => porTipo[t]).map(t => `${t} ${porTipo[t]}`).join(' · ') : ''}</span>`, chips) +
+    (xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${x.nf > 0 ? 'foto' : 'ind'}">${esc(ini(x))}</span>
       <div><b>${codigo(x)}</b> · ${esc(tipoTxt(x))}${x.nota ? `<br><span class="nt">${esc(x.nota)}</span>` : ''}
-      <small>${esc(x.u)} · ${fecha(x.t)}${x.uu && x.uu !== x.u ? ` · editó ${esc(x.uu)}` : ''} · 📷 ${x.nf || 0}</small></div></button>`).join('')
-    || '<p class="vacio">Sin indicaciones registradas.</p>'}`;
+      <small>${esc(x.u)} · ${fecha(x.t)}${x.uu && x.uu !== x.u ? ` · editó ${esc(x.uu)}` : ''} · ${ic('camara', 14)} ${x.nf || 0}</small></div></button>`).join('')
+    || '<p class="vacio">Sin indicaciones registradas.</p>');
 }
 
 function barraInferior() {
-  const b = (id, ic, tx, on) => `<button id="${id}" class="${on ? 'on' : ''}"><b>${ic}</b>${tx}</button>`;
-  return `<nav class="abajo">${b('nGri', '▦', 'Grilla', S.vista === 'grilla')}${b('nLis', '☰', 'Lista', S.vista === 'lista')}${b('nExp', '⇪', 'Exportar')}${b('nAju', '⚙', 'Ajustes')}</nav>`;
+  const b = (id, i, tx) => `<button id="${id}">${ic(i, 30)}<span>${tx}</span></button>`;
+  return `<nav class="abajo">${S.vista === 'lista' ? b('nVis', 'grilla', 'Grilla') : b('nVis', 'lista', 'Lista')}${b('nLam', 'lamina', 'Lámina')}${b('nExp', 'compartir', 'Exportar')}${b('nAju', 'ajustes', 'Ajustes')}</nav>`;
 }
 
 function conectar() {
   app.querySelectorAll('[data-n]').forEach(b => b.onclick = () => { S.nivel = +b.dataset.n; ls.set('ties_nivel_' + S.lev.id, S.nivel); render(); });
   app.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { S.filtroN = +b.dataset.f; render(); });
   app.querySelectorAll('[data-k]').forEach(b => b.onclick = () => detalle(b.dataset.k));
-  const g = $('#gwrap'); if (g) g.onclick = e => { const c = e.target.closest('.cand'); if (c) tocarCandado(+c.dataset.p, +c.dataset.c); };
-  $('#nGri').onclick = () => { S.vista = 'grilla'; render(); };
-  $('#nLis').onclick = () => { S.vista = 'lista'; S.filtroN = S.nivel; window.scrollTo(0, 0); render(); };
+  const g = $('#gwrap');
+  if (g) g.onclick = e => {
+    const l = S.lev, { xu, p, c, yu } = puntoSVG(e, g.querySelector('svg'), G.L, G.L + l.t * G.u);
+    if (yu < 0 || p < 1 || p > l.p) return;
+    if (l.t > 16 || xu < G.L - 4 || c < 1 || c > l.t - 1) return verPanel(p);
+    tocarCandado(p, c);
+  };
+  $('#nVis').onclick = () => {
+    if (S.vista === 'lista') S.vista = 'grilla'; else { S.vista = 'lista'; S.filtroN = S.nivel; }
+    window.scrollTo(0, 0); render();
+  };
+  $('#nLam').onclick = () => verLamina(S.vista === 'lista' && S.filtroN ? S.filtroN : S.nivel);
   $('#nExp').onclick = exportar;
   $('#nAju').onclick = ajustes;
 }
 
+// ---------- panel en grande ----------
+function svgPanel(n, p) {
+  const L = 4, W = L * 2 + S.lev.t * G.u, H = G.top + G.rh;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" style="width:${Math.max(S.lev.t * 46, 300)}px"><style>${SVG_CSS}</style>${numerosTubo(L, G.top / 2, true)}${filaSVG(n, p, G.top, L)}</svg>`;
+}
+
+function verPanel(p) {
+  S.panel = p;
+  hoja(`<div class="dcab"><h3>Nivel ${S.nivel} · Panel P${pad(p)}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
+    <p class="nota">Toca el candado entre dos tubos. Desliza hacia el lado si no cabe.</p>
+    <div class="pwrap" id="pwrap"></div><div id="pLista"></div>`, () => { S.panel = null; });
+  pintarPanel();
+}
+
+function pintarPanel() {
+  const w = $('#pwrap'); if (!w || !S.lev) return;
+  const n = S.nivel, p = S.panel, sx = w.scrollLeft;
+  w.innerHTML = svgPanel(n, p); w.scrollLeft = sx;
+  w.onclick = e => {
+    const { c, p: fila } = puntoSVG(e, w.querySelector('svg'), 4, 8 + S.lev.t * G.u);
+    if (fila === 1 && c >= 1 && c < S.lev.t) tocarCandado(p, c);
+  };
+  const xs = range(S.lev.t - 1).map(c => S.inds.get(key(n, p, c))).filter(Boolean);
+  $('#pLista').innerHTML = xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${x.nf > 0 ? 'foto' : 'ind'}">${esc(ini(x))}</span>
+    <div><b>${codigo(x)}</b> · ${esc(tipoTxt(x))}<small>${esc(x.u)} · ${ic('camara', 14)} ${x.nf || 0}</small></div></button>`).join('')
+    || '<p class="vacio">Sin indicaciones en este panel.</p>';
+  $('#pLista').querySelectorAll('[data-k]').forEach(b => b.onclick = () => { S.panel = null; detalle(b.dataset.k); });
+}
+
 // ---------- registrar indicación ----------
 function tocarCandado(p, c) {
+  S.panel = null;
   const n = S.nivel, k = key(n, p, c);
   if (S.inds.has(k)) return detalle(k);
   const cod = codigo({ n, p, c });
-  hoja(`<div class="dcab"><h3>${cod}</h3><button class="x" data-x>✕</button></div>
+  hoja(`<div class="dcab"><h3>${cod}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
     <p class="nota">Nivel ${n} · panel ${p} · candado entre tubos ${c} y ${c + 1}</p>
     <div class="tipos">${TIPOS.map(t => `<button class="btn" data-t="${t}">${t}</button>`).join('')}</div>`);
   $('#modal').querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
@@ -356,14 +466,14 @@ function detalle(k) {
   const x0 = S.inds.get(k); if (!x0) return;
   S.detalle = k; S.fotos = []; S.notaSucia = false;
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  hoja(`<div class="dcab"><h3>${codigo(x0)}</h3><button class="x" data-x>✕</button></div>
+  hoja(`<div class="dcab"><h3>${codigo(x0)}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
     <div class="tipos" id="dTipos"></div>
     <label>Nota<textarea id="dNota" rows="3" placeholder="Descripción, largo, ubicación…"></textarea></label>
-    ${SR ? '<button class="btn chico" id="dMic">🎤 Dictar nota</button>' : ''}
+    ${SR ? `<button class="btn chico" id="dMic">${ic('mic')}<span>Dictar nota</span></button>` : ''}
     <div class="fotos" id="dFotos"></div>
-    <div class="acciones"><button class="btn pri" id="dCam">📷 Foto</button><button class="btn" id="dGal">🖼 Galería</button></div>
+    <div class="acciones"><button class="btn pri" id="dCam">${ic('camara')}Foto</button><button class="btn" id="dGal">${ic('galeria')}Galería</button></div>
     <p class="meta" id="dMeta"></p>
-    <button class="btn peligro" id="dDel">Quitar indicación</button>`, cerrarDetalle);
+    <button class="btn peligro" id="dDel">${ic('borrar')}Quitar indicación</button>`, cerrarDetalle);
   const nota = $('#dNota');
   nota.oninput = () => S.notaSucia = true;
   nota.onblur = guardarNota;
@@ -372,9 +482,9 @@ function detalle(k) {
   $('#dDel').onclick = quitarInd;
   if (SR) $('#dMic').onclick = () => {
     const r = new SR(); r.lang = 'es-CL'; r.interimResults = false;
-    $('#dMic').textContent = '🎤 Escuchando…';
+    $('#dMic span').textContent = 'Escuchando…';
     r.onresult = ev => { const t = ev.results[0][0].transcript; nota.value = (nota.value ? nota.value.trim() + ' ' : '') + t; S.notaSucia = true; guardarNota(); };
-    r.onend = () => { const b = $('#dMic'); if (b) b.textContent = '🎤 Dictar nota'; };
+    r.onend = () => { const b = $('#dMic span'); if (b) b.textContent = 'Dictar nota'; };
     r.onerror = ev => toast('Dictado: ' + ev.error);
     r.start();
   };
@@ -453,9 +563,9 @@ async function compartir(blob, nombre) {
 
 function visor(src, { titulo: tt = '', nombre = 'imagen', eliminar } = {}) {
   const v = $('#visor'); guardia();
-  v.innerHTML = `<div class="vcab"><span>${esc(tt)}</span><button class="x" id="vX">✕</button></div>
+  v.innerHTML = `<div class="vcab"><span>${esc(tt)}</span><button class="x" id="vX">${ic('cerrar', 28)}</button></div>
     <div class="vimg" id="vImg"><img src="${src}" alt=""></div>
-    <div class="vbar"><button class="btn" id="vDes">⬇ Guardar</button>${navigator.share ? '<button class="btn" id="vSh">Compartir</button>' : ''}${eliminar ? '<button class="btn peligro" id="vDel">Eliminar</button>' : ''}</div>`;
+    <div class="vbar"><button class="btn" id="vDes">${ic('bajar')}Guardar</button>${navigator.share ? `<button class="btn" id="vSh">${ic('compartir')}Compartir</button>` : ''}${eliminar ? `<button class="btn peligro" id="vDel">${ic('borrar')}Eliminar</button>` : ''}</div>`;
   v.hidden = false;
   $('#vX').onclick = cerrarVisor;
   $('#vImg').onclick = () => $('#vImg').classList.toggle('zoom');
@@ -473,10 +583,13 @@ function cortar(g, s, w) {
   return s + '…';
 }
 
-function lamina(n) {
-  const l = S.lev, nc = l.t - 1, cw = 46, rh = 30, lw = 70, m = 30, top = 130, lh = 28;
+const cargarImg = src => new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error('no se pudo dibujar la grilla')); i.src = src; });
+
+async function lamina(n) {
+  const l = S.lev, m = 30, top = 130, lh = 28;
   const xs = [...S.inds.values()].filter(x => x.n === n).sort(ordenar);
-  const gw = lw + nc * cw, gh = rh * (l.p + 1);
+  const uw = G.L + l.t * G.u, uh = G.top + l.p * G.rh, k = Math.max(2, Math.min(3, 1000 / uw));
+  const gw = Math.round(uw * k), gh = Math.round(uh * k);
   const W = Math.max(gw + 2 * m, 1100), H = top + gh + 70 + (xs.length + 1) * lh + m;
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const g = cv.getContext('2d');
@@ -488,27 +601,10 @@ function lamina(n) {
   g.font = '16px sans-serif'; const ly = 108;
   g.fillStyle = '#F48FB1'; g.fillRect(m, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('Sin foto', m + 24, ly);
   g.fillStyle = '#D32F2F'; g.fillRect(m + 120, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('Con foto', m + 144, ly);
-  g.fillText('G Grieta · R Rotura · D Desgarro · O Otro · columnas = candado entre tubos', m + 250, ly);
-  const x0 = m, y0 = top;
-  g.textAlign = 'center'; g.font = 'bold 13px sans-serif';
-  g.fillStyle = '#dfe6ee'; g.fillRect(x0, y0, gw, rh);
-  g.fillStyle = '#13202c'; g.fillText('Panel', x0 + lw / 2, y0 + rh / 2);
-  for (let c = 1; c <= nc; c++) g.fillText(`${c}-${c + 1}`, x0 + lw + (c - 0.5) * cw, y0 + rh / 2);
-  for (let p = 1; p <= l.p; p++) {
-    const y = y0 + p * rh;
-    g.fillStyle = p % 2 ? '#fff' : '#f5f7fa'; g.fillRect(x0, y, gw, rh);
-    g.fillStyle = '#0E3A5F'; g.fillText(`P${pad(p)}`, x0 + lw / 2, y + rh / 2);
-    for (let c = 1; c <= nc; c++) {
-      const x = S.inds.get(key(n, p, c)); if (!x) continue;
-      const cx = x0 + lw + (c - 1) * cw;
-      g.fillStyle = x.nf > 0 ? '#D32F2F' : '#F48FB1'; g.fillRect(cx + 5, y + 3, cw - 10, rh - 6);
-      g.fillStyle = x.nf > 0 ? '#fff' : '#5a0d26'; g.fillText(ini(x), cx + cw / 2, y + rh / 2);
-    }
-  }
-  g.strokeStyle = '#d5dde6'; g.lineWidth = 1;
-  for (let p = 0; p <= l.p + 1; p++) { g.beginPath(); g.moveTo(x0, y0 + p * rh); g.lineTo(x0 + gw, y0 + p * rh); g.stroke(); }
-  g.strokeStyle = '#9aa9b8'; g.lineWidth = 3;
-  for (let c = 0; c <= nc; c++) { const x = x0 + lw + c * cw; g.beginPath(); g.moveTo(x, y0); g.lineTo(x, y0 + gh); g.stroke(); }
+  g.fillText('G Grieta · R Rotura · D Desgarro · O Otro · candado entre dos tubos', m + 250, ly);
+  const x0 = Math.round((W - gw) / 2), y0 = top;
+  g.fillStyle = '#EEF1F5'; g.fillRect(x0 - 10, y0 - 6, gw + 20, gh + 12);
+  g.drawImage(await cargarImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgNivel(n, gw, gh))), x0, y0, gw, gh);
   g.textAlign = 'left';
   const cols = [m, m + 200, m + 380, W - m - 300, W - m - 210], wcol = i => (cols[i + 1] || W - m) - cols[i] - 12;
   let y = y0 + gh + 44;
@@ -536,9 +632,9 @@ function csv() {
 function exportar() {
   const n = S.nivel, nom = limpio(S.lev.nombre);
   hoja(`<h3>Exportar</h3>
-    <button class="btn" id="eCsv">📊 Planilla (CSV para Excel)</button>
-    <button class="btn" id="eLam">🗺 Lámina del nivel ${n} (PNG)</button>
-    <button class="btn pri" id="eZip">📦 ZIP: fotos + láminas + planilla</button>
+    <button class="btn" id="eCsv">${ic('planilla')}Planilla (CSV para Excel)</button>
+    <button class="btn" id="eLam">${ic('lamina')}Lámina del nivel ${n} (PNG)</button>
+    <button class="btn pri" id="eZip">${ic('zip')}<span>ZIP: fotos + láminas + planilla</span></button>
     <p class="nota">El ZIP ordena las fotos como BoilerImage: Nivel N / Pxx Tyy-zz / Nn-Pxx-Tyy-zz_tipo_k.jpg.</p>
     <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
   $('#eCsv').onclick = () => compartir(new Blob([csv()], { type: 'text/csv' }), `Candados ${nom}.csv`);
@@ -546,24 +642,25 @@ function exportar() {
   $('#eZip').onclick = exportarZip;
 }
 
-function verLamina(n) {
-  const d = lamina(n).toDataURL('image/png');
+async function verLamina(n) {
+  let d;
+  try { d = (await lamina(n)).toDataURL('image/png'); } catch (e) { return toast('No se pudo armar la lámina: ' + e.message, 5000); }
   visor(d, { titulo: `Lámina nivel ${n}`, nombre: `Candados Nivel ${n}.png` });
 }
 
 async function exportarZip() {
-  const b = $('#eZip'); b.disabled = true; b.textContent = 'Preparando…';
+  const b = $('#eZip'), bt = $('#eZip span'); b.disabled = true; bt.textContent = 'Preparando…';
   try {
     const { default: JSZip } = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
     const z = new JSZip(), base = `Candados ${limpio(S.lev.nombre)}`;
     z.file(`${base}/Candados ${limpio(S.lev.nombre)}.csv`, csv());
     for (const n of range(S.lev.n)) {
-      if ([...S.inds.values()].some(x => x.n === n)) z.file(`${base}/Candados Nivel ${n}.png`, await canvasBlob(lamina(n)));
+      if ([...S.inds.values()].some(x => x.n === n)) z.file(`${base}/Candados Nivel ${n}.png`, await canvasBlob(await lamina(n)));
     }
     const xs = [...S.inds.values()].filter(x => x.nf > 0).sort(ordenar);
     let i = 0, nf = 0;
     for (const x of xs) {
-      i++; if ($('#eZip')) $('#eZip').textContent = `Fotos ${i} de ${xs.length}…`;
+      i++; if ($('#eZip span')) $('#eZip span').textContent = `Fotos ${i} de ${xs.length}…`;
       const s = await getDocs(query(fotosCol(x.id), orderBy('t')));
       s.docs.forEach((d, j) => {
         const dir = `${base}/Nivel ${x.n}/P${pad(x.p)} T${pad(x.c)}-${pad(x.c + 1)}`;
@@ -573,13 +670,13 @@ async function exportarZip() {
     const blob = await z.generateAsync({ type: 'blob' });
     const nombre = `${base} ${hoy()}.zip`;
     hoja(`<h3>ZIP listo</h3><p>${nf} fotos · ${(blob.size / 1048576).toFixed(1)} MB</p>
-      <button class="btn pri" id="zSh">Compartir</button><button class="btn" id="zDes">⬇ Guardar en Descargas</button>
+      <button class="btn pri" id="zSh">${ic('compartir')}Compartir</button><button class="btn" id="zDes">${ic('bajar')}Guardar en Descargas</button>
       <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
     $('#zSh').onclick = () => compartir(blob, nombre);
     $('#zDes').onclick = () => descargar(blob, nombre);
   } catch (e) {
     toast('No se pudo armar el ZIP: ' + (e.code || e.message), 6000);
-    const bb = $('#eZip'); if (bb) { bb.disabled = false; bb.textContent = '📦 ZIP: fotos + láminas + planilla'; }
+    const bb = $('#eZip'); if (bb) { bb.disabled = false; bb.querySelector('span').textContent = 'ZIP: fotos + láminas + planilla'; }
   }
 }
 
@@ -599,7 +696,7 @@ function ajustes() {
     <label class="sw"><input type="checkbox" id="aCam" ${ls.get('ties_cam', true) ? 'checked' : ''}> Abrir la cámara al marcar un candado</label>
     <label class="sw"><input type="checkbox" id="aSel" ${ls.get('ties_sello', true) ? 'checked' : ''}> Sello con código, usuario y fecha en la foto</label>
     <h4>Zona de peligro</h4>
-    <button class="btn peligro" id="aDel">Eliminar levantamiento</button>
+    <button class="btn peligro" id="aDel">${ic('borrar')}Eliminar levantamiento</button>
     <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
   $('#aCam').onchange = e => ls.set('ties_cam', e.target.checked);
   $('#aSel').onchange = e => ls.set('ties_sello', e.target.checked);
@@ -636,9 +733,9 @@ async function borrarLev(id) {
 function menu() {
   if (!S.uid || ls.get('ties_miembro', null) !== S.uid) return;
   hoja(`<h3>${esc(S.nombre)}</h3>
-    <button class="btn" id="mNom">✏️ Cambiar mi nombre</button>
-    ${S.instalar ? '<button class="btn" id="mInst">📲 Instalar TIES en el teléfono</button>' : ''}
-    <button class="btn" id="mSal">Cerrar sesión</button>
+    <button class="btn" id="mNom">${ic('editar')}Cambiar mi nombre</button>
+    ${S.instalar ? `<button class="btn" id="mInst">${ic('instalar')}Instalar TIES en el teléfono</button>` : ''}
+    <button class="btn" id="mSal">${ic('salir')}Cerrar sesión</button>
     <p class="nota">TIES v${VERSION}. Los cambios se guardan en el teléfono y se suben solos cuando hay señal. Cada indicación registra quién la marcó y quién la cambió por última vez.</p>
     <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
   $('#mNom').onclick = () => {
