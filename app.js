@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '1.3';
+const VERSION = '1.3.1';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -112,7 +112,13 @@ function estado() {
 addEventListener('online', () => { estado(); toast('Con señal: sincronizando'); });
 addEventListener('offline', () => { estado(); toast('Sin señal: los cambios quedan guardados en el teléfono'); });
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); S.instalar = e; });
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
+if ('serviceWorker' in navigator) {
+  // al publicarse una versión nueva, recargar una vez para usarla
+  const habia = !!navigator.serviceWorker.controller;
+  let recargo = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (habia && !recargo) { recargo = true; location.reload(); } });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => { });
+}
 
 function titulo(t) { $('#titulo').textContent = t; $('#atras').hidden = !S.lev && !S.ruta.cid; }
 $('#atras').onclick = () => atras();

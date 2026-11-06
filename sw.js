@@ -1,5 +1,5 @@
 // TIES — funciona sin señal: guarda la app y las librerías en el teléfono
-const CACHE = 'ties-v4';
+const CACHE = 'ties-v5';
 const BASE = ['./', 'index.html', 'styles.css', 'app.js', 'firebase-config.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 const FB = ['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map(f => 'https://www.gstatic.com/firebasejs/11.0.2/' + f);
 
@@ -18,9 +18,15 @@ self.addEventListener('fetch', e => {
   const propio = u.origin === location.origin;
   const cdn = u.hostname === 'www.gstatic.com' || u.hostname === 'cdn.jsdelivr.net';
   if (!propio && !cdn) return; // Firestore y Auth van directo
+  // Archivos propios: primero la red (siempre la última versión); sin señal, la copia guardada.
+  // Librerías del CDN (versión fija): primero la copia guardada.
   e.respondWith(caches.open(CACHE).then(async c => {
     const hit = await c.match(e.request, { ignoreSearch: propio });
-    const red = fetch(e.request).then(r => { if (r.ok) c.put(e.request, r.clone()); return r; }).catch(() => hit);
-    return cdn ? (hit || red) : (hit ? (red.catch(() => {}), hit) : red);
+    if (cdn && hit) return hit;
+    try {
+      const r = await fetch(e.request, propio ? { cache: 'no-cache' } : undefined);
+      if (r.ok) c.put(e.request, r.clone());
+      return r;
+    } catch (err) { if (hit) return hit; throw err; }
   }));
 });
