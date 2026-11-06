@@ -695,7 +695,7 @@ async function detectarNiveles(src, kid) {
   lineas.forEach(L => {
     let mejor = null, sup = 0;
     cols.forEach(c => { const o = Math.min(L.x2, c.x2) - Math.max(L.x1, c.x1); if (o > sup) { sup = o; mejor = c; } });
-    if (!mejor || ancho(L) < 0.3 * (mejor.x2 - mejor.x1)) return;
+    if (!mejor || ancho(L) < 0.4 * (mejor.x2 - mejor.x1)) return;
     const y = (L.y1 + L.y2) / 2;
     if (!mejor.ys.some(v => Math.abs(v - y) < H * 0.012)) mejor.ys.push(y);
   });
