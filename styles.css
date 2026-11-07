@@ -161,3 +161,7 @@ nav.abajo button{font-size:13px}
 .version label:has(input:checked){border-color:var(--ambar);box-shadow:0 0 0 2px #ffe0a3}
 .rn small{font-size:11px;color:#2e7d32;font-weight:700}
 .tipos .btn:last-child:nth-child(odd){grid-column:1/-1}
+.tipos.estados .btn.on.reparado{background:#2e7d32;color:#fff}
+.tipos.estados .btn.on.pendiente{background:#f5a300;color:#13202c}
+.est{font-weight:600}.est.reparado{color:#2e7d32}.est.pendiente{color:#b26a00}
+.lblest{font-weight:600;margin:6px 0 -2px}

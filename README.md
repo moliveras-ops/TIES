@@ -7,6 +7,7 @@ Webapp multiusuario para registrar indicaciones en los candados del sobrecalenta
 - **Levantamientos**: se crean con nombre, paneles, niveles y tubos (por defecto 25 × 7 × 15 = 14 candados por panel). Se editan en Ajustes.
 - **Grilla por nivel** (chips N1…N7 con conteo): tocar el candado → Grieta / Rotura / Desgarro / Ausencia / Otro → se abre la cámara. Rosado = sin foto, rojo = con foto.
 - **Niveles inspeccionados**: en resumen, croquis e informe, un nivel con hallazgos cuenta como inspeccionado aunque no se haya marcado a mano.
+- **Estado de cada indicación**: Pendiente (por defecto) o Reparado, desde la ficha de la indicación; aparece como columna en todas las tablas del informe.
 - **Detalle**: cambiar tipo, nota (escrita o dictada), fotos (cámara o galería), quitar.
 - **Aviso en vivo** cuando otro usuario marca un candado. Arriba se ve el estado: en línea / sin señal / cambios por subir.
 - **Lista** de indicaciones por nivel con resumen por tipo.

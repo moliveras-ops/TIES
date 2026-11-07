@@ -1,21 +1,23 @@
 // TIES — informe de candados en PDF (jsPDF) y Word (.docx armado a mano con JSZip)
 // Recibe los datos ya preparados por app.js:
-// c = { titulo, subtitulo, resumen, conteo, filas: [[código, nivel, panel, candado, indicación, fotos, obs]],
+// c = { titulo, subtitulo, resumen, conteo, filas: [[código, nivel, panel, candado, indicación, estado, fotos, obs]],
 //       croquis: { titulo, img: {d, w, h} } | null,
-//       niveles: [{ titulo, img: {d, w, h}, filas: [[código, panel, candado, indicación, fotos, obs]] }],
+//       niveles: [{ titulo, img: {d, w, h}, filas: [[código, panel, candado, indicación, estado, fotos, obs]] }],
 //       fichas: [{ titulo, ubic, general: {d, w, h} | null, detalle: {d, w, h} | null, obs }], pie }
 
 const AZUL = [14, 58, 95], GRIS = [90, 107, 123], CELESTE = [214, 228, 240], SUAVE = [238, 241, 245];
-const COLS_RES = [['Código', 34], ['Nivel', 16], ['Panel', 14], ['Candado', 18], ['Indicación', 30], ['Observaciones', 70]];
+const COLS_RES = [['Código', 34], ['Nivel', 16], ['Panel', 14], ['Candado', 18], ['Indicación', 30], ['Estado', 20], ['Observaciones', 50]];
 // color de la celda Indicación: rotura en naranjo, grieta en rojo con letra blanca
 const COLOR_IND = {
   Rotura: { fondo: [251, 140, 0], letra: [19, 32, 44] }, Grieta: { fondo: [211, 47, 47], letra: [255, 255, 255] },
   Desgarro: { fondo: [123, 31, 162], letra: [255, 255, 255] }, Ausencia: { fondo: [255, 213, 79], letra: [19, 32, 44] }, Otro: { fondo: [84, 110, 122], letra: [255, 255, 255] }
 };
-const colorInd = (cols, i, v) => { const t = String(v ?? '').trim(); return cols[i][0] === 'Indicación' && t ? COLOR_IND[t] || COLOR_IND[t[0].toUpperCase() + t.slice(1).toLowerCase()] || COLOR_IND.Otro : null; };
+// color de la celda Estado: reparado en verde, pendiente en ámbar
+const COLOR_EST = { Reparado: { fondo: [46, 125, 50], letra: [255, 255, 255] }, Pendiente: { fondo: [255, 224, 178], letra: [19, 32, 44] } };
+const colorInd = (cols, i, v) => { const t = String(v ?? '').trim(); if (cols[i][0] === 'Estado') return COLOR_EST[t] || null; return cols[i][0] === 'Indicación' && t ? COLOR_IND[t] || COLOR_IND[t[0].toUpperCase() + t.slice(1).toLowerCase()] || COLOR_IND.Otro : null; };
 const VERDE = [200, 230, 201], VERDE_O = [46, 125, 50], ROJO = [211, 47, 47];
-const COLS_NIV = [['Código', 36], ['Panel', 15], ['Candado', 20], ['Indicación', 32], ['Fotos', 22], ['Observaciones', 57]];
-const COLS = [['Código', 34], ['Nivel', 18], ['Panel', 13], ['Candado', 18], ['Indicación', 28], ['Fotos', 20], ['Observaciones', 51]];
+const COLS_NIV = [['Código', 36], ['Panel', 15], ['Candado', 20], ['Indicación', 32], ['Estado', 20], ['Fotos', 22], ['Observaciones', 37]];
+const COLS = [['Código', 34], ['Nivel', 16], ['Panel', 12], ['Candado', 18], ['Indicación', 26], ['Estado', 20], ['Fotos', 18], ['Observaciones', 38]];
 
 // ---------- PDF ----------
 export async function informePDF(c) {

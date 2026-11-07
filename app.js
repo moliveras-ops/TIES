@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.6.1';
+const VERSION = '2.7.0';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Ausencia', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -58,6 +58,9 @@ const hoy = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.get
 const key = (n, p, c) => `N${n}-P${pad(p)}-C${pad(c)}`;
 const codigo = x => `N${x.n}-P${pad(x.p)}-T${pad(x.c)}-${pad(x.c + 1)}`;
 const tipoTxt = x => x.k === 'Otro' && x.o ? x.o : x.k;
+// estado de reparación: campo es = 'Reparado'; sin campo = Pendiente
+const ESTADOS = ['Pendiente', 'Reparado'];
+const estTxt = x => x.es === 'Reparado' ? 'Reparado' : 'Pendiente';
 // tipo para contar: un "Otro" escrito como "Ausencia" (registros antiguos) cuenta como Ausencia
 const tipoK = x => x.k === 'Otro' && /^ausencia$/i.test((x.o || '').trim()) ? 'Ausencia' : x.k;
 const ini = x => (x.k || '?')[0];
@@ -1103,6 +1106,7 @@ function detalle(k) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   hoja(`<div class="dcab"><h3>${codigo(x0)}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
     <div class="tipos" id="dTipos"></div>
+    <div class="lblest">Estado</div><div class="tipos estados" id="dEst"></div>
     <label>Nota<textarea id="dNota" rows="3" placeholder="Descripción, largo, ubicación…"></textarea></label>
     ${SR ? `<button class="btn chico" id="dMic">${ic('mic')}<span>Dictar nota</span></button>` : ''}
     ${['general', 'detalle'].map(tp => `<div class="secfoto" id="sec_${tp}"><h4>${ic('camara', 18)} Foto ${tp === 'general' ? 'general' : 'de detalle'} <span id="est_${tp}"></span></h4>
@@ -1136,6 +1140,11 @@ function refrescarDetalle() {
   const t = $('#dTipos'); if (!t) return;
   t.innerHTML = TIPOS.map(tp => `<button class="btn ${x.k === tp ? 'on' : ''}" data-tp="${tp}">${tp === 'Otro' && x.k === 'Otro' && x.o ? 'Otro: ' + esc(x.o) : tp}</button>`).join('');
   t.querySelectorAll('[data-tp]').forEach(b => b.onclick = () => cambiarTipo(b.dataset.tp));
+  const es = $('#dEst');
+  if (es) {
+    es.innerHTML = ESTADOS.map(v => `<button class="btn ${estTxt(x) === v ? 'on ' + v.toLowerCase() : ''}" data-es="${v}">${v}</button>`).join('');
+    es.querySelectorAll('[data-es]').forEach(b => b.onclick = () => { if (b.dataset.es !== estTxt(x)) updateDoc(indRef(S.detalle), { es: b.dataset.es, uu: S.nombre, ut: Date.now() }).catch(errEsc); });
+  }
   const nota = $('#dNota');
   if (document.activeElement !== nota && !S.notaSucia && nota.value !== (x.nota || '')) nota.value = x.nota || '';
   // resaltar la foto que falta (primero la general, luego la de detalle)
@@ -1389,7 +1398,7 @@ async function resumenHallazgos(prj, kid) {
       h += `<div class="rsh"><div class="rshcab"><b>${esc(x.nombre)}</b><span>${l ? `${nInspC(l, cnt)}/${n} inspeccionados · ${plural(xs.length, 'hallazgo', 'hallazgos')}` : 'sin iniciar'}</span></div>
         <div class="rniv">${range(n).map(j => `<button class="rn ${insNiv(l, j, cnt) ? 'ok' : ''} ${cnt[j] ? 'con' : ''}" data-sid="${x.id}" data-kid="${k.id}" data-n="${j}">${insNiv(l, j, cnt) ? '✓ ' : ''}${esc((x.nn || [])[j - 1] || 'N' + j)}${!insNiv(l, j, cnt) && nPanInsp(l, j) ? `<small>${nPanInsp(l, j)}/${l.p}</small>` : ''}${cnt[j] ? `<i>${cnt[j]}</i>` : ''}</button>`).join('')}</div>
         ${xs.map(y => `<button class="rh" data-lev="${l.id}" data-k="${y.id}"><span class="badge ${completa(y) ? 'foto' : 'ind'}">${esc(ini(y))}</span>
-          <div><b>${codigo(y)}</b> · ${esc(tipoTxt(y))}${y.nota ? `<br><span class="nt">${esc(y.nota)}</span>` : ''}<small>${esc(y.u)} · ${fecha(y.t)} · ${fotosTxt(y)}</small></div></button>`).join('')}</div>`;
+          <div><b>${codigo(y)}</b> · ${esc(tipoTxt(y))} · <span class="est ${estTxt(y).toLowerCase()}">${estTxt(y)}</span>${y.nota ? `<br><span class="nt">${esc(y.nota)}</span>` : ''}<small>${esc(y.u)} · ${fecha(y.t)} · ${fotosTxt(y)}</small></div></button>`).join('')}</div>`;
     });
   });
   if (!ks.some(k => shDe(k.id).length)) h += '<p class="vacio">No hay sobrecalentadores configurados.</p>';
@@ -1440,7 +1449,7 @@ async function seccionInforme(l, xs, paraCliente, avance, pre = '') {
     avance(`${pre}grilla ${nn(n)}…`);
     sec.niveles.push({
       titulo: `${nivelNom(n, l)} · ${shn}`, img: await grillaPNG(l, inds, n),
-      filas: ys.map(x => [codigo(x), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || ''])
+      filas: ys.map(x => [codigo(x), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), estTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || ''])
     });
   }
   let i = 0;
@@ -1483,7 +1492,7 @@ async function datosInforme(avance, paraCliente, alcance = 'sh', prj, kid) {
     const xs = [...S.inds.values()].sort(ordenar), cnt = conteoNiveles();
     c.resumen = `${l0.n} niveles · ${l0.p} paneles · ${l0.t} tubos por panel (${l0.t - 1} candados) · ${xs.length} indicación(es)`;
     c.conteo = range(l0.n).map(i => `${chipNom(i)}: ${cnt[i] || 0}`).join('    ');
-    c.filas = xs.map(x => [codigo(x), chipNom(x.n), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || '']);
+    c.filas = xs.map(x => [codigo(x), chipNom(x.n), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), estTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || '']);
   } else c.soloResumen = true;
   // resumen de hallazgos de la caldera
   if (prj && kid) {
@@ -1501,7 +1510,7 @@ async function datosInforme(avance, paraCliente, alcance = 'sh', prj, kid) {
         return {
           nombre: x.nombre, estado: v ? `${nInspC(v, cnt)}/${n} niveles inspeccionados · ${plural(ys.length, 'hallazgo', 'hallazgos')}` : 'sin iniciar',
           niveles: range(n).map(j => ({ nom: (x.nn || [])[j - 1] || 'N' + j, ok: insNiv(v, j, cnt), n: cnt[j] || 0 })),
-          filas: ys.map(y => [codigo(y), (x.nn || [])[y.n - 1] || 'N' + y.n, pad(y.p), `T${pad(y.c)}-${pad(y.c + 1)}`, tipoTxt(y), y.nota || ''])
+          filas: ys.map(y => [codigo(y), (x.nn || [])[y.n - 1] || 'N' + y.n, pad(y.p), `T${pad(y.c)}-${pad(y.c + 1)}`, tipoTxt(y), estTxt(y), y.nota || ''])
         };
       })
     };
