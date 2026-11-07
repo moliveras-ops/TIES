@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.12.0';
+const VERSION = '2.13.0';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Ausencia', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -73,18 +73,22 @@ const estTxt = x => x.es === 'Reparado' ? 'Reparado' : 'Pendiente';
 const tipoK = x => x.k === 'Otro' && /^ausencia$/i.test((x.o || '').trim()) ? 'Ausencia' : x.k;
 const ini = x => (x.k || '?')[0];
 // fotos: cada indicación lleva foto general y foto de detalle (como BoilerImage)
-const FT = { general: 'General', detalle: 'Detalle', reparacion: 'Reparación' };
+const FT = { general: 'General', detalle: 'Detalle', reparacion: 'Reparación general', repdetalle: 'Reparación detalle' };
+const TF = Object.keys(FT);
 // foto de reparación: opcional; solo aparece (ficha, tablas, informe) cuando la indicación la tiene
-const nR = x => x.nr || 0;
+const nR = x => x.nr || 0, nRD = x => x.nrd || 0;
+const reparada = x => nR(x) > 0 && nRD(x) > 0;
+// color del candado: verde con foto general y de detalle de la reparación, rojo con general y detalle, rosado si falta foto
+const claseCand = x => reparada(x) ? 'rep' : completa(x) ? 'foto' : 'ind';
 const nG = x => x.ng ?? (x.nd === undefined ? x.nf || 0 : 0);
 const nD = x => x.nd || 0;
 const completa = x => nG(x) > 0 && nD(x) > 0;
 // cambio del conteo general/detalle; en indicaciones antiguas (solo nf) se fijan los dos valores la primera vez
-const conteoFotos = (x, tp, d) => tp === 'reparacion' ? { nr: increment(d), ...(x.ng === undefined && x.nd === undefined ? { ng: x.nf || 0, nd: 0 } : {}) } : x.ng === undefined && x.nd === undefined
+const conteoFotos = (x, tp, d) => tp === 'reparacion' || tp === 'repdetalle' ? { [tp === 'reparacion' ? 'nr' : 'nrd']: increment(d), ...(x.ng === undefined && x.nd === undefined ? { ng: x.nf || 0, nd: 0 } : {}) } : x.ng === undefined && x.nd === undefined
   ? { ng: Math.max(0, (x.nf || 0) + (tp === 'general' ? d : 0)), nd: Math.max(0, tp === 'detalle' ? d : 0) }
   : { [tp === 'detalle' ? 'nd' : 'ng']: increment(d) };
-const fotosTxt = x => `General ${nG(x)} · Detalle ${nD(x)}${nR(x) ? ` · Reparación ${nR(x)}` : ''}`;
-const fotosCorto = x => `G ${nG(x)} · D ${nD(x)}${nR(x) ? ` · R ${nR(x)}` : ''}`;
+const fotosTxt = x => `General ${nG(x)} · Detalle ${nD(x)}${nR(x) || nRD(x) ? ` · Reparación general ${nR(x)} · Reparación detalle ${nRD(x)}` : ''}`;
+const fotosCorto = x => `G ${nG(x)} · D ${nD(x)}${nR(x) || nRD(x) ? ` · RG ${nR(x)} · RD ${nRD(x)}` : ''}`;
 const ordenar = (a, b) => a.n - b.n || a.p - b.p || a.c - b.c;
 const errEsc = e => toast('No se guardó: ' + (e.code || e.message));
 
@@ -641,7 +645,7 @@ function conteoNiveles() {
 // unidades: etiqueta L, un tubo cada u, alto de fila rh; el candado c va entre los tubos c y c+1
 const G = { L: 34, u: 20, rh: 34, top: 14 };
 const SVG_CSS = '.tb{fill:#dde6ef;stroke:#1f3a57;stroke-width:1.6}.tbi{fill:#fff}.fz{fill:#eef3f8}.fondo{fill:#fff}' +
-  '.cv{fill:#fff;stroke:#1f3a57;stroke-width:1.4}.ci{fill:#F48FB1;stroke:#c2185b;stroke-width:1}.cf{fill:#D32F2F;stroke:#8e1b1b;stroke-width:1}' +
+  '.cv{fill:#fff;stroke:#1f3a57;stroke-width:1.4}.ci{fill:#F48FB1;stroke:#c2185b;stroke-width:1}.cf{fill:#D32F2F;stroke:#8e1b1b;stroke-width:1}.cr{fill:#2E7D32;stroke:#1b5e20;stroke-width:1}' +
   'text{font-family:system-ui,Roboto,Arial,sans-serif;text-anchor:middle;dominant-baseline:central}' +
   '.ti,.tf{font-size:8.5px;font-weight:700}.ti{fill:#5a0d26}.tf{fill:#fff}' +
   '.pl{font-size:10.5px;font-weight:700;fill:#0E3A5F;text-anchor:start}.pl.r{fill:#D32F2F}.pl.v{fill:#1b5e20}.pok{fill:#d9f0db;stroke:#66bb6a;stroke-width:.8}.tn{font-size:7px;fill:#33475b}';
@@ -663,7 +667,7 @@ function filaSVG(n, p, y, L) {
   for (let c = 1; c < t; c++) {
     const cx = L + c * u, x = GI().get(key(n, p, c));
     s += x
-      ? `<rect x="${cx - 7.5}" y="${my - 6.5}" width="15" height="13" rx="2.5" class="${completa(x) ? 'cf' : 'ci'}"/><text x="${cx}" y="${my + 0.5}" class="${completa(x) ? 'tf' : 'ti'}">${esc(ini(x))}</text>`
+      ? `<rect x="${cx - 7.5}" y="${my - 6.5}" width="15" height="13" rx="2.5" class="${{ rep: 'cr', foto: 'cf', ind: 'ci' }[claseCand(x)]}"/><text x="${cx}" y="${my + 0.5}" class="${claseCand(x) === 'ind' ? 'ti' : 'tf'}">${esc(ini(x))}</text>`
       : `<rect x="${cx - 6.5}" y="${my - 4}" width="13" height="8" rx="2" class="cv"/>`;
   }
   return s;
@@ -940,7 +944,7 @@ function vistaGrilla() {
   return cabNivel(`<b>${esPT(l) ? 'Líquidos penetrantes' : 'Candados'} — ${esc(nivelNom(n))}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, bCq + chips) +
     `<div class="${cq ? 'vgr' : ''}">${cq ? `<aside class="lado">${cq}</aside>` : ''}<div>${bIns}
     <div class="gwrap" id="gwrap">${comoImg(svgNivel(n))}</div>
-    <div class="leyenda"><span class="ley"><span class="sw ind"></span>falta foto general o de detalle</span><span class="ley"><span class="sw foto"></span>con general y detalle</span>
+    <div class="leyenda"><span class="ley"><span class="sw ind"></span>falta foto general o de detalle</span><span class="ley"><span class="sw foto"></span>con general y detalle</span><span class="ley"><span class="sw rep"></span>reparación con general y detalle</span>
       <span>${l.t > 16 ? 'Toca un panel para abrirlo en grande.' : 'Toca el candado entre dos tubos, o el nombre del panel para verlo en grande.'}</span></div></div></div>`;
 }
 
@@ -952,7 +956,7 @@ function vistaLista() {
     nivelesLev(l).map(i => `<button class="chip ${i === f ? 'on' : ''}" data-f="${i}">${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
   return cabNivel(`<b>Indicaciones${f ? ' — ' + esc(nivelNom(f)) : ''}</b><span>${xs.length}${Object.keys(porTipo).length ? ' · ' + tiposDe(l).filter(t => porTipo[t]).map(t => `${t} ${porTipo[t]}`).join(' · ') : ''}</span>`, chips) +
     (l.prj && !esPT(l) ? `<button class="btn pri resbtn" id="bResL">${ic('lista')}Resumen de hallazgos de la caldera</button>` : '') +
-    (xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${completa(x) ? 'foto' : 'ind'}">${esc(ini(x))}</span>
+    (xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${claseCand(x)}">${esc(ini(x))}</span>
       <div><b>${codigo(x)}</b> · ${esc(tipoTxt(x))}${x.nota ? `<br><span class="nt">${esc(x.nota)}</span>` : ''}
       <small>${esc(x.u)} · ${fecha(x.t)}${x.uu && x.uu !== x.u ? ` · editó ${esc(x.uu)}` : ''} · ${ic('camara', 14)} ${fotosTxt(x)}</small></div></button>`).join('')
     || '<p class="vacio">Sin indicaciones registradas.</p>');
@@ -1026,7 +1030,7 @@ function pintarPanel() {
     if (fila === 1 && c >= 1 && c < S.lev.t) tocarCandado(p, c);
   };
   const xs = range(S.lev.t - 1).map(c => S.inds.get(key(n, p, c))).filter(Boolean);
-  $('#pLista').innerHTML = xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${completa(x) ? 'foto' : 'ind'}">${esc(ini(x))}</span>
+  $('#pLista').innerHTML = xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${claseCand(x)}">${esc(ini(x))}</span>
     <div><b>${codigo(x)}</b> · ${esc(tipoTxt(x))}<small>${esc(x.u)} · ${ic('camara', 14)} ${fotosTxt(x)}</small></div></button>`).join('')
     || '<p class="vacio">Sin indicaciones en este panel.</p>';
   $('#pLista').querySelectorAll('[data-k]').forEach(b => b.onclick = () => { S.panel = null; detalle(b.dataset.k); });
@@ -1113,9 +1117,9 @@ $('#cam').onchange = $('#gal').onchange = async e => {
       setDoc(doc(fotosCol(k)), { d, tp, t: Date.now(), u: S.nombre, uid: S.uid }).catch(errEsc);
       // la primera vez que se separan, las fotos antiguas cuentan como generales
       updateDoc(indRef(k), { ...conteoFotos(x, tp, 1), nf: increment(1), uu: S.nombre, ut: Date.now() }).catch(errEsc);
-      if (x) S.inds.set(k, { ...x, ng: nG(x) + (tp === 'general'), nd: nD(x) + (tp === 'detalle'), nr: nR(x) + (tp === 'reparacion') });
-      // con foto de reparación la indicación pasa a Reparado
-      if (x && tp === 'reparacion' && estTxt(x) !== 'Reparado') { updateDoc(indRef(k), { es: 'Reparado' }).catch(errEsc); S.inds.set(k, { ...S.inds.get(k), es: 'Reparado' }); }
+      if (x) S.inds.set(k, { ...x, ng: nG(x) + (tp === 'general'), nd: nD(x) + (tp === 'detalle'), nr: nR(x) + (tp === 'reparacion'), nrd: nRD(x) + (tp === 'repdetalle') });
+      // con foto general y de detalle de la reparación la indicación pasa a Reparado
+      if (x && reparada(S.inds.get(k)) && estTxt(x) !== 'Reparado') { updateDoc(indRef(k), { es: 'Reparado' }).catch(errEsc); S.inds.set(k, { ...S.inds.get(k), es: 'Reparado' }); }
       const falta = x && tp === 'general' && !nD(x);
       toast(`Foto ${FT[tp].toLowerCase()} guardada` + (falta ? '. Ahora toma la foto de detalle.' : '') + (navigator.onLine ? '' : ' (se sube al tener señal)'), falta ? 4500 : 2600);
       if (S.detalle === k) refrescarDetalle();
@@ -1181,7 +1185,7 @@ function detalle(k) {
     <div class="lblest">Estado</div><div class="tipos estados" id="dEst"></div>
     <label>Nota<textarea id="dNota" rows="3" placeholder="Descripción, largo, ubicación…"></textarea></label>
     ${SR ? `<button class="btn chico" id="dMic">${ic('mic')}<span>Dictar nota</span></button>` : ''}
-    ${['general', 'detalle', 'reparacion'].map(tp => `<div class="secfoto" id="sec_${tp}"><h4>${ic('camara', 18)} Foto ${tp === 'general' ? 'general' : tp === 'detalle' ? 'de detalle' : 'de reparación'} <span id="est_${tp}"></span></h4>
+    ${TF.map(tp => `${tp === 'reparacion' ? '<div class="lblest">Reparación (opcional, después de reparar)</div>' : ''}<div class="secfoto${tp.startsWith('rep') ? ' rep' : ''}" id="sec_${tp}"><h4>${ic('camara', 18)} Foto ${{ general: 'general', detalle: 'de detalle', reparacion: 'general de la reparación', repdetalle: 'de detalle de la reparación' }[tp]} <span id="est_${tp}"></span></h4>
       <div class="fotos" id="dFotos_${tp}"></div>
       <div class="acciones"><button class="btn" id="dCam_${tp}">${ic('camara')}${FT[tp]}</button><button class="btn" id="dGal_${tp}">${ic('galeria')}Galería</button></div></div>`).join('')}
     <p class="meta" id="dMeta"></p>
@@ -1189,7 +1193,7 @@ function detalle(k) {
   const nota = $('#dNota');
   nota.oninput = () => S.notaSucia = true;
   nota.onblur = guardarNota;
-  ['general', 'detalle', 'reparacion'].forEach(tp => {
+  TF.forEach(tp => {
     $('#dCam_' + tp).onclick = () => abrirCamara(k, false, tp);
     $('#dGal_' + tp).onclick = () => abrirCamara(k, true, tp);
   });
@@ -1226,13 +1230,14 @@ function refrescarDetalle() {
     $('#dCam_' + tp).classList.toggle('pri', tp === falta);
     $('#est_' + tp).innerHTML = n ? `<b class="ok">✓ ${n}</b>` : '<b class="pend">falta</b>';
   });
-  $('#est_reparacion').innerHTML = nR(x) ? `<b class="ok">✓ ${nR(x)}</b>` : '<small class="opc">opcional · después de reparar</small>';
+  // reparación: opcional; si ya se subió una de las dos, la otra figura como faltante
+  [['reparacion', nR(x)], ['repdetalle', nRD(x)]].forEach(([tp, n]) => $('#est_' + tp).innerHTML = n ? `<b class="ok">✓ ${n}</b>` : nR(x) || nRD(x) ? '<b class="pend">falta</b>' : '<small class="opc">opcional</small>');
   $('#dMeta').innerHTML = `Registró <b>${esc(x.u)}</b> · ${fecha(x.t)}${x.ut ? `<br>Último cambio: <b>${esc(x.uu)}</b> · ${fecha(x.ut)}` : ''}`;
 }
 
-const tipoFoto = f => f.tp === 'detalle' || f.tp === 'reparacion' ? f.tp : 'general';
+const tipoFoto = f => TF.includes(f.tp) ? f.tp : 'general';
 function pintarFotos() {
-  ['general', 'detalle', 'reparacion'].forEach(tp => {
+  TF.forEach(tp => {
     const el = $('#dFotos_' + tp); if (!el) return;
     const fs = S.fotos.filter(f => tipoFoto(f) === tp);
     el.innerHTML = fs.map((f, i) => `<img data-i="${i}" src="${f.d}" alt="">`).join('');
@@ -1348,7 +1353,8 @@ async function lamina(n) {
   g.font = '16px sans-serif'; const ly = 108;
   g.fillStyle = '#F48FB1'; g.fillRect(m, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('Falta foto', m + 24, ly);
   g.fillStyle = '#D32F2F'; g.fillRect(m + 120, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('General y detalle', m + 144, ly);
-  g.fillText('G Grieta · R Rotura · D Desgarro · O Otro · candado entre dos tubos', m + 300, ly);
+  g.fillStyle = '#2E7D32'; g.fillRect(m + 300, ly - 8, 16, 16); g.fillStyle = '#13202c'; g.fillText('Reparado', m + 324, ly);
+  g.fillText('G Grieta · R Rotura · D Desgarro · O Otro · candado entre dos tubos', m + 430, ly);
   const x0 = Math.round((W - gw) / 2), y0 = top;
   g.fillStyle = '#EEF1F5'; g.fillRect(x0 - 10, y0 - 6, gw + 20, gh + 12);
   g.drawImage(await cargarImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgNivel(n, gw, gh))), x0, y0, gw, gh);
@@ -1409,7 +1415,7 @@ async function exportarZip() {
     for (const x of xs) {
       i++; if ($('#eZip span')) $('#eZip span').textContent = `Fotos ${i} de ${xs.length}…`;
       const s = await getDocs(query(fotosCol(x.id), orderBy('t')));
-      const cuenta = { general: 0, detalle: 0, reparacion: 0 };
+      const cuenta = { general: 0, detalle: 0, reparacion: 0, repdetalle: 0 };
       s.docs.forEach(d => {
         const f = d.data(), tp = tipoFoto(f), dir = `${base}/Nivel ${x.n}/P${pad(x.p)} T${pad(x.c)}-${pad(x.c + 1)}`;
         z.file(`${dir}/${codigo(x)}_${limpio(tipoTxt(x))}_${tp}_${++cuenta[tp]}.jpg`, f.d.split(',')[1], { base64: true }); nf++;
@@ -1486,7 +1492,7 @@ async function resumenHallazgos(prj, kid) {
       const cnt = {}; xs.forEach(y => cnt[y.n] = (cnt[y.n] || 0) + 1);
       h += `<div class="rsh"><div class="rshcab"><b>${esc(x.nombre)}</b><span>${l ? `${nInspC(l, cnt)}/${n} inspeccionados · ${plural(xs.length, 'hallazgo', 'hallazgos')}` : 'sin iniciar'}</span></div>
         <div class="rniv">${range(n).map(j => `<button class="rn ${insNiv(l, j, cnt) ? 'ok' : ''} ${cnt[j] ? 'con' : ''}" data-sid="${x.id}" data-kid="${k.id}" data-n="${j}">${insNiv(l, j, cnt) ? '✓ ' : ''}${esc((x.nn || [])[j - 1] || 'N' + j)}${!insNiv(l, j, cnt) && nPanInsp(l, j) ? `<small>${nPanInsp(l, j)}/${l.p}</small>` : ''}${cnt[j] ? `<i>${cnt[j]}</i>` : ''}</button>`).join('')}</div>
-        ${xs.map(y => `<button class="rh" data-lev="${l.id}" data-k="${y.id}"><span class="badge ${completa(y) ? 'foto' : 'ind'}">${esc(ini(y))}</span>
+        ${xs.map(y => `<button class="rh" data-lev="${l.id}" data-k="${y.id}"><span class="badge ${claseCand(y)}">${esc(ini(y))}</span>
           <div><b>${codigo(y)}</b> · ${esc(tipoTxt(y))} · <span class="est ${estTxt(y).toLowerCase()}">${estTxt(y)}</span>${y.nota ? `<br><span class="nt">${esc(y.nota)}</span>` : ''}<small>${esc(y.u)} · ${fecha(y.t)} · ${fotosTxt(y)}</small></div></button>`).join('')}</div>`;
     });
   });
@@ -1564,12 +1570,12 @@ async function seccionInforme(l, xs, paraCliente, avance, pre = '') {
     avance(`${pre}fotos ${++i} de ${xs.length}…`);
     let fs = [];
     if (x.nf > 0) fs = (await getDocs(query(collection(db, 'levantamientos', l.id, 'indicaciones', x.id, 'fotos'), orderBy('t')))).docs.map(d => d.data());
-    const g = fs.find(f => tipoFoto(f) === 'general'), d = fs.find(f => tipoFoto(f) === 'detalle'), r = fs.find(f => tipoFoto(f) === 'reparacion');
+    const g = fs.find(f => tipoFoto(f) === 'general'), d = fs.find(f => tipoFoto(f) === 'detalle'), r = fs.find(f => tipoFoto(f) === 'reparacion'), rd = fs.find(f => tipoFoto(f) === 'repdetalle');
     sec.fichas.push({
       titulo: `Nivel ${pad(x.n)}${nombresNiv(l)[x.n - 1] ? ' (' + nombresNiv(l)[x.n - 1] + ')' : ''}, Panel N°${pad(x.p)}, Tubos N°${pad(x.c)}-${pad(x.c + 1)}  ·  ${tipoTxt(x)}`,
       ubic: `${shn} · Código ${codigo(x)} · candado entre los tubos ${x.c} y ${x.c + 1}` + (paraCliente ? '' : ` · registró ${x.u}, ${fecha(x.t)}`),
       general: await fotoInforme(g, paraCliente, x, 'general', l), detalle: await fotoInforme(d, paraCliente, x, 'detalle', l),
-      reparacion: await fotoInforme(r, paraCliente, x, 'reparacion', l), obs: x.nota || ''
+      reparacion: await fotoInforme(r, paraCliente, x, 'reparacion', l), repdetalle: await fotoInforme(rd, paraCliente, x, 'repdetalle', l), obs: x.nota || ''
     });
   }
   return sec;

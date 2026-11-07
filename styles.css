@@ -36,10 +36,11 @@ label.sw input{width:26px;height:26px;margin:0;flex:none}
 .badge{flex:none;width:40px;height:40px;border-radius:8px;display:flex!important;align-items:center;justify-content:center;font-weight:700;font-size:16px!important}
 .badge.ind{background:var(--rosa);color:#5a0d26!important}
 .badge.foto{background:var(--rojo);color:#fff!important}
+.badge.rep{background:#2E7D32;color:#fff!important}
 .resumen{background:#fff;border-radius:12px;padding:10px 14px;font-size:14px;margin:6px 0}
 .leyenda{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px;color:#5b6b7b;margin:4px 0 8px}
 .leyenda .sw{width:16px;height:16px;border-radius:4px;display:inline-block}
-.leyenda .sw.ind{background:var(--rosa)}.leyenda .sw.foto{background:var(--rojo)}
+.leyenda .sw.ind{background:var(--rosa)}.leyenda .sw.foto{background:var(--rojo)}.leyenda .sw.rep{background:#2E7D32}
 #modal{position:fixed;inset:0;background:rgba(10,20,30,.5);z-index:10;display:flex;align-items:flex-end;justify-content:center}
 #modal[hidden],#visor[hidden]{display:none}
 .hoja{background:var(--fondo);width:100%;max-width:640px;max-height:92dvh;overflow:auto;border-radius:18px 18px 0 0;padding:14px 16px;padding-bottom:max(16px,env(safe-area-inset-bottom))}
@@ -165,3 +166,4 @@ nav.abajo button{font-size:13px}
 .tipos.estados .btn.on.pendiente{background:#f5a300;color:#13202c}
 .est{font-weight:600}.est.reparado{color:#2e7d32}.est.pendiente{color:#b26a00}
 .lblest{font-weight:600;margin:6px 0 -2px}
+.secfoto.rep{border-left:4px solid #2E7D32}
