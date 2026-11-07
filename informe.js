@@ -10,9 +10,9 @@ const COLS_RES = [['Código', 34], ['Nivel', 16], ['Panel', 14], ['Candado', 18]
 // color de la celda Indicación: rotura en naranjo, grieta en rojo con letra blanca
 const COLOR_IND = {
   Rotura: { fondo: [251, 140, 0], letra: [19, 32, 44] }, Grieta: { fondo: [211, 47, 47], letra: [255, 255, 255] },
-  Desgarro: { fondo: [123, 31, 162], letra: [255, 255, 255] }, Otro: { fondo: [84, 110, 122], letra: [255, 255, 255] }
+  Desgarro: { fondo: [123, 31, 162], letra: [255, 255, 255] }, Ausencia: { fondo: [255, 213, 79], letra: [19, 32, 44] }, Otro: { fondo: [84, 110, 122], letra: [255, 255, 255] }
 };
-const colorInd = (cols, i, v) => cols[i][0] === 'Indicación' && String(v ?? '').trim() ? COLOR_IND[String(v).trim()] || COLOR_IND.Otro : null;
+const colorInd = (cols, i, v) => { const t = String(v ?? '').trim(); return cols[i][0] === 'Indicación' && t ? COLOR_IND[t] || COLOR_IND[t[0].toUpperCase() + t.slice(1).toLowerCase()] || COLOR_IND.Otro : null; };
 const VERDE = [200, 230, 201], VERDE_O = [46, 125, 50], ROJO = [211, 47, 47];
 const COLS_NIV = [['Código', 36], ['Panel', 15], ['Candado', 20], ['Indicación', 32], ['Fotos', 22], ['Observaciones', 57]];
 const COLS = [['Código', 34], ['Nivel', 18], ['Panel', 13], ['Candado', 18], ['Indicación', 28], ['Fotos', 20], ['Observaciones', 51]];
@@ -107,7 +107,7 @@ export async function informePDF(c) {
         x += bw + 2.5;
       });
       y += 13;
-      if (sh.filas.length) { tabla(COLS_RES, sh.filas, R.titulo + ' (cont.)'); y += 4; }
+      if (sh.filas.length) { tabla(COLS_RES, sh.filas, R.titulo); y += 4; }
     });
   }
 
