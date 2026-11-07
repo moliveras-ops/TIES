@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.10.0';
+const VERSION = '2.11.0';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Ausencia', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -1139,11 +1139,11 @@ async function comprimir(file, x, tp) {
 }
 const altoSello = w => Math.max(48, Math.round(w * 0.07));
 const jpegBajo = cv => { for (const q of [0.75, 0.62, 0.5]) { const d = cv.toDataURL('image/jpeg', q); if (d.length < 900000) return d; } return null; };
-function dibujarSello(g, w, h, bh, x, tp, u, t) {
+function dibujarSello(g, w, h, bh, x, tp, u, t, lev = S.lev) {
   const fs = Math.round(bh * 0.34);
   g.fillStyle = '#0E3A5F'; g.fillRect(0, h, w, bh); g.textBaseline = 'middle';
   g.fillStyle = '#fff'; g.font = `bold ${fs}px sans-serif`; g.fillText(`${codigo(x)} · ${tipoTxt(x)}${tp ? ' · ' + FT[tp] : ''}`, fs * 0.6, h + bh * 0.3);
-  g.fillStyle = '#F5A300'; g.font = `${Math.round(fs * 0.8)}px sans-serif`; g.fillText(`${nombreCompleto(S.lev)} · ${u} · ${fecha(t)}`, fs * 0.6, h + bh * 0.72);
+  g.fillStyle = '#F5A300'; g.font = `${Math.round(fs * 0.8)}px sans-serif`; g.fillText(`${nombreCompleto(lev)} · ${u} · ${fecha(t)}`, fs * 0.6, h + bh * 0.72);
 }
 // alto de la franja azul del sello al pie de la foto (0 si no tiene)
 function bandaSello(im) {
@@ -1155,13 +1155,13 @@ function bandaSello(im) {
   return b < 30 ? 0 : Math.abs(b - e) <= 4 ? e : b;   // el JPEG difumina el borde: usar el alto exacto con que se dibujó
 }
 // gira la foto 90° (dir = 1 horario, -1 antihorario); si tenía sello, lo vuelve a poner abajo con el usuario y la fecha originales
-async function girarFoto(f, dir, x, tp) {
+async function girarFoto(f, dir, x, tp, lev) {
   const im = await cargarImg(f.d), w = im.naturalWidth, banda = bandaSello(im), h = im.naturalHeight - banda;
   const bh = banda ? altoSello(h) : 0;
   const cv = document.createElement('canvas'); cv.width = h; cv.height = w + bh;
   const g = cv.getContext('2d');
   g.save(); g.translate(h / 2, w / 2); g.rotate(dir * Math.PI / 2); g.drawImage(im, 0, 0, w, h, -w / 2, -h / 2, w, h); g.restore();
-  if (banda) dibujarSello(g, h, w, bh, x, tp, f.u, f.t);
+  if (banda) dibujarSello(g, h, w, bh, x, tp, f.u, f.t, lev);
   const d = jpegBajo(cv); if (!d) throw new Error('foto demasiado grande');
   return d;
 }
@@ -1521,7 +1521,16 @@ async function achicar(r, max = LIVIANO.max) {
   const d = cv.toDataURL('image/jpeg', LIVIANO.q);
   return d.length < r.d.length ? { d, w, h } : r;
 }
-const fotoInforme = async (f, paraCliente) => f ? achicar(await (paraCliente ? sinSello(f) : medir(f.d))) : null;
+// opción "fotos horizontales": las fotos verticales se giran 90° a la derecha solo en el informe (si tienen sello, queda abajo)
+async function fotoInforme(f, paraCliente, x, tp, l) {
+  if (!f) return null;
+  let r = await (paraCliente ? sinSello(f) : medir(f.d));
+  if (S.horizontal) {
+    const im = await cargarImg(r.d), banda = paraCliente ? 0 : bandaSello(im);
+    if (r.h - banda > r.w) r = await medir(await girarFoto({ ...f, d: r.d }, 1, x, tp, l));
+  }
+  return achicar(r);
+}
 
 // grilla de un nivel como PNG para el informe
 async function grillaPNG(l, inds, n) {
@@ -1553,7 +1562,7 @@ async function seccionInforme(l, xs, paraCliente, avance, pre = '') {
     sec.fichas.push({
       titulo: `Nivel ${pad(x.n)}${nombresNiv(l)[x.n - 1] ? ' (' + nombresNiv(l)[x.n - 1] + ')' : ''}, Panel N°${pad(x.p)}, Tubos N°${pad(x.c)}-${pad(x.c + 1)}  ·  ${tipoTxt(x)}`,
       ubic: `${shn} · Código ${codigo(x)} · candado entre los tubos ${x.c} y ${x.c + 1}` + (paraCliente ? '' : ` · registró ${x.u}, ${fecha(x.t)}`),
-      general: await fotoInforme(g, paraCliente), detalle: await fotoInforme(d, paraCliente), obs: x.nota || ''
+      general: await fotoInforme(g, paraCliente, x, 'general', l), detalle: await fotoInforme(d, paraCliente, x, 'detalle', l), obs: x.nota || ''
     });
   }
   return sec;
@@ -1651,6 +1660,7 @@ function menuInforme(prj, kid) {
     ${faltan ? `<p class="aviso">${ic('camara', 18)} ${plural(faltan, 'indicación no tiene', 'indicaciones no tienen')} las dos fotos; en el informe aparecerá "Sin foto".</p>` : ''}
     <h4>Versión</h4><div class="version"><label><input type="radio" name="iVer" value="cliente" ${ls.get('ties_inf_ver', 'cliente') === 'cliente' ? 'checked' : ''}><span><b>Para el cliente</b><small>Sin fechas del levantamiento ni quién lo registró; fotos sin sello</small></span></label>
       <label><input type="radio" name="iVer" value="interno" ${ls.get('ties_inf_ver', 'cliente') === 'interno' ? 'checked' : ''}><span><b>Interno</b><small>Con fecha, responsables y fotos con sello</small></span></label></div>
+    <label class="sw"><input type="checkbox" id="iHor" ${ls.get('ties_inf_hor', false) ? 'checked' : ''}> <span><b>Fotos horizontales</b> · las fotos verticales se giran solo en el informe (las guardadas no cambian)</span></label>
     <label class="sw"><input type="checkbox" id="iLiv" ${ls.get('ties_inf_liv', false) ? 'checked' : ''}> <span><b>Liviano para correo</b> · fotos más chicas y comprimidas (el archivo pesa 2 a 3 veces menos)</span></label>
     ${!logoEmpresa() || !cli(cliId)?.logo ? `<p class="nota">Logos: ${!logoEmpresa() ? 'carga el de la empresa en el menú ⋮' : ''}${!logoEmpresa() && !cli(cliId)?.logo ? ' y ' : ''}${!cli(cliId)?.logo ? 'el del cliente en la pantalla del cliente' : ''}.</p>` : ''}
     <button class="btn pri" id="iPdf">${ic('informe')}<span>Informe PDF</span></button>
@@ -1659,6 +1669,7 @@ function menuInforme(prj, kid) {
     <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
   $('#modal').querySelectorAll('[name="iVer"]').forEach(r => r.onchange = () => ls.set('ties_inf_ver', r.value));
   $('#iLiv').onchange = e => ls.set('ties_inf_liv', e.target.checked);
+  $('#iHor').onchange = e => ls.set('ties_inf_hor', e.target.checked);
   $('#modal').querySelectorAll('[name="iAlc"]').forEach(r => r.onchange = () => ls.set('ties_inf_alc', r.value));
   const alcance = () => !desdeGrilla ? 'caldera' : $('#modal [name="iAlc"]:checked')?.value || 'sh';
   $('#iPdf').onclick = () => generarInforme('pdf', alcance(), prj, kid);
@@ -1671,9 +1682,9 @@ async function generarInforme(tipo, alcance, prj, kid) {
   try {
     av('Preparando…');
     const cliente = ($('#modal [name="iVer"]:checked')?.value || 'cliente') === 'cliente';
-    S.liviano = !!$('#iLiv')?.checked;
+    S.liviano = !!$('#iLiv')?.checked; S.horizontal = !!$('#iHor')?.checked;
     const c = await datosInforme(av, cliente, alcance, prj, kid);
-    const liviano = S.liviano; S.liviano = false;
+    const liviano = S.liviano; S.liviano = S.horizontal = false;
     av(tipo === 'pdf' ? 'Armando el PDF…' : 'Armando el Word…');
     const m = await import('./informe.js');
     const blob = tipo === 'pdf' ? await m.informePDF(c) : await m.informeWord(c);
@@ -1687,7 +1698,7 @@ async function generarInforme(tipo, alcance, prj, kid) {
   } catch (e) {
     console.error(e);
     toast('No se pudo armar el informe: ' + (e.code || e.message), 6000);
-    S.liviano = false;
+    S.liviano = S.horizontal = false;
     bs.forEach(b => b && (b.disabled = false)); av('');
   }
 }
