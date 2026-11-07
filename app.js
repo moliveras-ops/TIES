@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.6.0';
+const VERSION = '2.6.1';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Ausencia', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -247,7 +247,7 @@ const nInspC = (l, cnt) => l ? range(l.n).filter(n => insNiv(l, n, cnt)).length 
 const inspP = (l, n, p) => l?.ip?.[`N${n}_P${p}`] || null;
 const nPanInsp = (l, n) => l ? range(l.p).filter(p => inspP(l, n, p)).length : 0;
 const levEv = (prj, sid) => S.levs.find(l => l.prj === prj && l.sid === sid);
-const inspTxt = l => l ? `${nInsp(l)} de ${l.n} niveles inspeccionados` : 'sin iniciar';
+const inspTxt = l => l ? `${nInspC(l, conteoSH(l.prj, l.sid))} de ${l.n} niveles inspeccionados` : 'sin iniciar';
 const dimTxt = x => `${x.p} paneles · ${x.t} tubos · ${x.n} niveles`;
 
 // guardar y mostrar de inmediato (sin esperar la respuesta de Firestore)
