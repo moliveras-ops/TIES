@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.8.0';
+const VERSION = '2.8.1';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Ausencia', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -478,7 +478,9 @@ function vistaEventoCaldera() {
 // nueva inspección por líquidos penetrantes: elegir sobrecalentador y nivel (solo se registran candados con indicación)
 function nuevaPT(e, k) {
   const shs = shDe(k.id); if (!shs.length) return toast('La caldera no tiene sobrecalentadores');
-  const niv = x => range(x.n).map(j => `<option value="${j}" ${j === x.n ? 'selected' : ''}>${esc((x.nn || [])[j - 1] || 'Nivel ' + j)}</option>`).join('');
+  // los niveles salen de la grilla visual del evento (si existe), no del catálogo, para que coincidan
+  const base = x => { const v = levEv(e.id, x.id); return v ? { p: v.p, n: v.n, t: v.t, nn: v.nn || [] } : { p: x.p, n: x.n, t: x.t, nn: x.nn || [] }; };
+  const niv = x => { const b = base(x); return range(b.n).map(j => `<option value="${j}" ${j === b.n ? 'selected' : ''}>${esc(b.nn[j - 1] || 'Nivel ' + j)}</option>`).join(''); };
   hoja(`<h3>Nueva inspección PT</h3><p class="nota">Líquidos penetrantes. Registra solo los candados con indicación; el informe sale como anexo separado de la inspección visual.</p>
     <label>Sobrecalentador<select id="ptSh">${shs.map(x => `<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></label>
     <label>Nivel<select id="ptN">${niv(shs[0])}</select></label>
@@ -493,7 +495,7 @@ function nuevaPT(e, k) {
       S.nivelPend = n; return abrirLev(ya.id);
     }
     const ref = doc(collection(db, 'levantamientos'));
-    const d = { nombre: e.nombre, anio: e.anio, cid: k.cid, pid: k.pid, kid: k.id, prj: e.id, sid: x.id, p: x.p, n: x.n, t: x.t, nn: x.nn || [], met: 'PT', nv: [n], c: Date.now(), u: S.nombre, uid: S.uid };
+    const d = { nombre: e.nombre, anio: e.anio, cid: k.cid, pid: k.pid, kid: k.id, prj: e.id, sid: x.id, ...base(x), met: 'PT', nv: [n], c: Date.now(), u: S.nombre, uid: S.uid };
     setDoc(ref, d).catch(errEsc);
     S.levs = [{ id: ref.id, ...d }, ...S.levs];
     S.nivelPend = n; abrirLev(ref.id);
@@ -580,6 +582,10 @@ function tituloLev() {
 
 function abrirLev(id) {
   const l = S.levs.find(x => x.id === id); if (!l) return;
+  if (esPT(l)) { // PT: mismas dimensiones y nombres de nivel que la grilla visual del evento
+    const v = levEv(l.prj, l.sid), cambia = v && ['p', 'n', 't'].some(c => v[c] !== l[c]) || v && JSON.stringify(v.nn || []) !== JSON.stringify(l.nn || []);
+    if (cambia) { Object.assign(l, { p: v.p, n: v.n, t: v.t, nn: v.nn || [] }); updateDoc(levRef(l.id), { p: v.p, n: v.n, t: v.t, nn: v.nn || [] }).catch(errEsc); }
+  }
   guardia();
   S.lev = l; S.levId = id; ls.set('ties_lev', id);
   S.nivel = ajNivel(l, Math.min(S.nivelPend || ls.get('ties_nivel_' + id, 1), l.n)); S.nivelPend = null; ls.set('ties_nivel_' + id, S.nivel);
