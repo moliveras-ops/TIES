@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.9.0';
+const VERSION = '2.10.0';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Ausencia', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -1511,6 +1511,18 @@ async function sinSello(f) {
   return { d: c2.toDataURL('image/jpeg', 0.85), w, h: h - banda };
 }
 
+// PDF liviano (para mandar por correo): fotos a ~1000 px y calidad JPEG más baja
+const LIVIANO = { max: 1000, q: 0.6 };
+async function achicar(r, max = LIVIANO.max) {
+  if (!S.liviano || !r) return r;
+  const im = await cargarImg(r.d), e = Math.min(1, max / Math.max(r.w, r.h)), w = Math.round(r.w * e), h = Math.round(r.h * e);
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(im, 0, 0, w, h);
+  const d = cv.toDataURL('image/jpeg', LIVIANO.q);
+  return d.length < r.d.length ? { d, w, h } : r;
+}
+const fotoInforme = async (f, paraCliente) => f ? achicar(await (paraCliente ? sinSello(f) : medir(f.d))) : null;
+
 // grilla de un nivel como PNG para el informe
 async function grillaPNG(l, inds, n) {
   const uw = G.L + l.t * G.u, uh = G.top + l.p * G.rh, gw = Math.round(uw * 2.2), gh = Math.round(uh * 2.2);
@@ -1541,7 +1553,7 @@ async function seccionInforme(l, xs, paraCliente, avance, pre = '') {
     sec.fichas.push({
       titulo: `Nivel ${pad(x.n)}${nombresNiv(l)[x.n - 1] ? ' (' + nombresNiv(l)[x.n - 1] + ')' : ''}, Panel N°${pad(x.p)}, Tubos N°${pad(x.c)}-${pad(x.c + 1)}  ·  ${tipoTxt(x)}`,
       ubic: `${shn} · Código ${codigo(x)} · candado entre los tubos ${x.c} y ${x.c + 1}` + (paraCliente ? '' : ` · registró ${x.u}, ${fecha(x.t)}`),
-      general: g ? await (paraCliente ? sinSello(g) : medir(g.d)) : null, detalle: d ? await (paraCliente ? sinSello(d) : medir(d.d)) : null, obs: x.nota || ''
+      general: await fotoInforme(g, paraCliente), detalle: await fotoInforme(d, paraCliente), obs: x.nota || ''
     });
   }
   return sec;
@@ -1601,6 +1613,7 @@ async function datosInforme(avance, paraCliente, alcance = 'sh', prj, kid) {
     avance('Croquis…');
     const sid = l0?.sid || null, cnt = l0 ? conteoNiveles() : {};
     let img = k.cqmap?.cols?.length ? await imagenMapa(k, { sid, cnt }) : k.img ? await medir(k.img) : null;
+    img = await achicar(img, 1400);   // el croquis un poco más grande para que se lean los niveles
     if (!img) {
       const sv = svgCroquis(k.id, sid, 0, cnt), vb = sv.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/), w = Math.round(+vb[1] * 4), h = Math.round(+vb[2] * 4);
       const i2 = await cargarImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sv));
@@ -1638,12 +1651,14 @@ function menuInforme(prj, kid) {
     ${faltan ? `<p class="aviso">${ic('camara', 18)} ${plural(faltan, 'indicación no tiene', 'indicaciones no tienen')} las dos fotos; en el informe aparecerá "Sin foto".</p>` : ''}
     <h4>Versión</h4><div class="version"><label><input type="radio" name="iVer" value="cliente" ${ls.get('ties_inf_ver', 'cliente') === 'cliente' ? 'checked' : ''}><span><b>Para el cliente</b><small>Sin fechas del levantamiento ni quién lo registró; fotos sin sello</small></span></label>
       <label><input type="radio" name="iVer" value="interno" ${ls.get('ties_inf_ver', 'cliente') === 'interno' ? 'checked' : ''}><span><b>Interno</b><small>Con fecha, responsables y fotos con sello</small></span></label></div>
+    <label class="sw"><input type="checkbox" id="iLiv" ${ls.get('ties_inf_liv', false) ? 'checked' : ''}> <span><b>Liviano para correo</b> · fotos más chicas y comprimidas (el archivo pesa 2 a 3 veces menos)</span></label>
     ${!logoEmpresa() || !cli(cliId)?.logo ? `<p class="nota">Logos: ${!logoEmpresa() ? 'carga el de la empresa en el menú ⋮' : ''}${!logoEmpresa() && !cli(cliId)?.logo ? ' y ' : ''}${!cli(cliId)?.logo ? 'el del cliente en la pantalla del cliente' : ''}.</p>` : ''}
     <button class="btn pri" id="iPdf">${ic('informe')}<span>Informe PDF</span></button>
     <button class="btn" id="iDoc">${ic('informe')}<span>Informe Word (.docx)</span></button>
     <p class="nota" id="iAv"></p>
     <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
   $('#modal').querySelectorAll('[name="iVer"]').forEach(r => r.onchange = () => ls.set('ties_inf_ver', r.value));
+  $('#iLiv').onchange = e => ls.set('ties_inf_liv', e.target.checked);
   $('#modal').querySelectorAll('[name="iAlc"]').forEach(r => r.onchange = () => ls.set('ties_inf_alc', r.value));
   const alcance = () => !desdeGrilla ? 'caldera' : $('#modal [name="iAlc"]:checked')?.value || 'sh';
   $('#iPdf').onclick = () => generarInforme('pdf', alcance(), prj, kid);
@@ -1656,13 +1671,15 @@ async function generarInforme(tipo, alcance, prj, kid) {
   try {
     av('Preparando…');
     const cliente = ($('#modal [name="iVer"]:checked')?.value || 'cliente') === 'cliente';
+    S.liviano = !!$('#iLiv')?.checked;
     const c = await datosInforme(av, cliente, alcance, prj, kid);
+    const liviano = S.liviano; S.liviano = false;
     av(tipo === 'pdf' ? 'Armando el PDF…' : 'Armando el Word…');
     const m = await import('./informe.js');
     const blob = tipo === 'pdf' ? await m.informePDF(c) : await m.informeWord(c);
     const k = cal(kid), base = alcance === 'caldera' ? [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, proy(prj)?.nombre, k?.nombre].filter(Boolean).join(' · ') + ' completa' : nombreCompleto(S.lev);
     const nombre = `${esPT(S.lev) && alcance === 'sh' ? 'Anexo PT candados' : 'Informe candados'} ${limpio(base)}${cliente ? '' : ' INTERNO ' + hoy()}.${tipo}`;
-    hoja(`<h3>Informe listo</h3><p>${alcance === 'caldera' ? 'Caldera completa' : 'Sobrecalentador'} · ${cliente ? 'para el cliente' : 'interno'} · ${tipo === 'pdf' ? 'PDF' : 'Word'} · ${c.total} indicación(es) · ${(blob.size / 1048576).toFixed(1)} MB</p>
+    hoja(`<h3>Informe listo</h3><p>${alcance === 'caldera' ? 'Caldera completa' : 'Sobrecalentador'} · ${cliente ? 'para el cliente' : 'interno'} · ${tipo === 'pdf' ? 'PDF' : 'Word'}${liviano ? ' liviano' : ''} · ${c.total} indicación(es) · ${(blob.size / 1048576).toFixed(1)} MB</p>
       <button class="btn pri" id="zSh">${ic('compartir')}Compartir</button><button class="btn" id="zDes">${ic('bajar')}Guardar en Descargas</button>
       <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
     $('#zSh').onclick = () => compartir(blob, nombre);
@@ -1670,6 +1687,7 @@ async function generarInforme(tipo, alcance, prj, kid) {
   } catch (e) {
     console.error(e);
     toast('No se pudo armar el informe: ' + (e.code || e.message), 6000);
+    S.liviano = false;
     bs.forEach(b => b && (b.disabled = false)); av('');
   }
 }

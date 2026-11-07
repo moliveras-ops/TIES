@@ -14,6 +14,7 @@ Webapp multiusuario para registrar indicaciones en los candados del sobrecalenta
 - **Aviso en vivo** cuando otro usuario marca un candado. Arriba se ve el estado: en línea / sin señal / cambios por subir.
 - **Lista** de indicaciones por nivel con resumen por tipo.
 - **Exportar**: planilla CSV para Excel, lámina PNG por nivel, ZIP con fotos + láminas + planilla (`Nivel N/Pxx Tyy-zz/Nn-Pxx-Tyy-zz_tipo_k.jpg`, igual que BoilerImage).
+- **Informe liviano para correo**: en el menú del informe, la casilla "Liviano para correo" baja las fotos a ~1000 px y calidad 60 % (croquis a 1400 px) solo para ese informe; las fotos guardadas no cambian.
 - Fotos reducidas a ~1600 px con sello opcional (código, tipo, levantamiento, usuario y fecha).
 
 ## Puesta en marcha (una sola vez, ~15 min)
