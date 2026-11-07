@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.11.0';
+const VERSION = '2.12.0';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Ausencia', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -73,15 +73,18 @@ const estTxt = x => x.es === 'Reparado' ? 'Reparado' : 'Pendiente';
 const tipoK = x => x.k === 'Otro' && /^ausencia$/i.test((x.o || '').trim()) ? 'Ausencia' : x.k;
 const ini = x => (x.k || '?')[0];
 // fotos: cada indicación lleva foto general y foto de detalle (como BoilerImage)
-const FT = { general: 'General', detalle: 'Detalle' };
+const FT = { general: 'General', detalle: 'Detalle', reparacion: 'Reparación' };
+// foto de reparación: opcional; solo aparece (ficha, tablas, informe) cuando la indicación la tiene
+const nR = x => x.nr || 0;
 const nG = x => x.ng ?? (x.nd === undefined ? x.nf || 0 : 0);
 const nD = x => x.nd || 0;
 const completa = x => nG(x) > 0 && nD(x) > 0;
 // cambio del conteo general/detalle; en indicaciones antiguas (solo nf) se fijan los dos valores la primera vez
-const conteoFotos = (x, tp, d) => x.ng === undefined && x.nd === undefined
+const conteoFotos = (x, tp, d) => tp === 'reparacion' ? { nr: increment(d), ...(x.ng === undefined && x.nd === undefined ? { ng: x.nf || 0, nd: 0 } : {}) } : x.ng === undefined && x.nd === undefined
   ? { ng: Math.max(0, (x.nf || 0) + (tp === 'general' ? d : 0)), nd: Math.max(0, tp === 'detalle' ? d : 0) }
   : { [tp === 'detalle' ? 'nd' : 'ng']: increment(d) };
-const fotosTxt = x => `General ${nG(x)} · Detalle ${nD(x)}`;
+const fotosTxt = x => `General ${nG(x)} · Detalle ${nD(x)}${nR(x) ? ` · Reparación ${nR(x)}` : ''}`;
+const fotosCorto = x => `G ${nG(x)} · D ${nD(x)}${nR(x) ? ` · R ${nR(x)}` : ''}`;
 const ordenar = (a, b) => a.n - b.n || a.p - b.p || a.c - b.c;
 const errEsc = e => toast('No se guardó: ' + (e.code || e.message));
 
@@ -1102,7 +1105,7 @@ $('#cam').onchange = $('#gal').onchange = async e => {
     catch (err) { toast('No se pudo procesar la imagen: ' + err.message, 5000); }
     return;
   }
-  const files = [...e.target.files], k = S.camK, tp = S.camTp === 'detalle' ? 'detalle' : 'general'; e.target.value = '';
+  const files = [...e.target.files], k = S.camK, tp = FT[S.camTp] ? S.camTp : 'general'; e.target.value = '';
   if (!k || !files.length || !S.lev) return;
   for (const f of files) {
     try {
@@ -1110,7 +1113,9 @@ $('#cam').onchange = $('#gal').onchange = async e => {
       setDoc(doc(fotosCol(k)), { d, tp, t: Date.now(), u: S.nombre, uid: S.uid }).catch(errEsc);
       // la primera vez que se separan, las fotos antiguas cuentan como generales
       updateDoc(indRef(k), { ...conteoFotos(x, tp, 1), nf: increment(1), uu: S.nombre, ut: Date.now() }).catch(errEsc);
-      if (x) S.inds.set(k, { ...x, ng: nG(x) + (tp === 'general'), nd: nD(x) + (tp === 'detalle') });
+      if (x) S.inds.set(k, { ...x, ng: nG(x) + (tp === 'general'), nd: nD(x) + (tp === 'detalle'), nr: nR(x) + (tp === 'reparacion') });
+      // con foto de reparación la indicación pasa a Reparado
+      if (x && tp === 'reparacion' && estTxt(x) !== 'Reparado') { updateDoc(indRef(k), { es: 'Reparado' }).catch(errEsc); S.inds.set(k, { ...S.inds.get(k), es: 'Reparado' }); }
       const falta = x && tp === 'general' && !nD(x);
       toast(`Foto ${FT[tp].toLowerCase()} guardada` + (falta ? '. Ahora toma la foto de detalle.' : '') + (navigator.onLine ? '' : ' (se sube al tener señal)'), falta ? 4500 : 2600);
       if (S.detalle === k) refrescarDetalle();
@@ -1176,7 +1181,7 @@ function detalle(k) {
     <div class="lblest">Estado</div><div class="tipos estados" id="dEst"></div>
     <label>Nota<textarea id="dNota" rows="3" placeholder="Descripción, largo, ubicación…"></textarea></label>
     ${SR ? `<button class="btn chico" id="dMic">${ic('mic')}<span>Dictar nota</span></button>` : ''}
-    ${['general', 'detalle'].map(tp => `<div class="secfoto" id="sec_${tp}"><h4>${ic('camara', 18)} Foto ${tp === 'general' ? 'general' : 'de detalle'} <span id="est_${tp}"></span></h4>
+    ${['general', 'detalle', 'reparacion'].map(tp => `<div class="secfoto" id="sec_${tp}"><h4>${ic('camara', 18)} Foto ${tp === 'general' ? 'general' : tp === 'detalle' ? 'de detalle' : 'de reparación'} <span id="est_${tp}"></span></h4>
       <div class="fotos" id="dFotos_${tp}"></div>
       <div class="acciones"><button class="btn" id="dCam_${tp}">${ic('camara')}${FT[tp]}</button><button class="btn" id="dGal_${tp}">${ic('galeria')}Galería</button></div></div>`).join('')}
     <p class="meta" id="dMeta"></p>
@@ -1184,7 +1189,7 @@ function detalle(k) {
   const nota = $('#dNota');
   nota.oninput = () => S.notaSucia = true;
   nota.onblur = guardarNota;
-  ['general', 'detalle'].forEach(tp => {
+  ['general', 'detalle', 'reparacion'].forEach(tp => {
     $('#dCam_' + tp).onclick = () => abrirCamara(k, false, tp);
     $('#dGal_' + tp).onclick = () => abrirCamara(k, true, tp);
   });
@@ -1221,12 +1226,13 @@ function refrescarDetalle() {
     $('#dCam_' + tp).classList.toggle('pri', tp === falta);
     $('#est_' + tp).innerHTML = n ? `<b class="ok">✓ ${n}</b>` : '<b class="pend">falta</b>';
   });
+  $('#est_reparacion').innerHTML = nR(x) ? `<b class="ok">✓ ${nR(x)}</b>` : '<small class="opc">opcional · después de reparar</small>';
   $('#dMeta').innerHTML = `Registró <b>${esc(x.u)}</b> · ${fecha(x.t)}${x.ut ? `<br>Último cambio: <b>${esc(x.uu)}</b> · ${fecha(x.ut)}` : ''}`;
 }
 
-const tipoFoto = f => f.tp === 'detalle' ? 'detalle' : 'general';
+const tipoFoto = f => f.tp === 'detalle' || f.tp === 'reparacion' ? f.tp : 'general';
 function pintarFotos() {
-  ['general', 'detalle'].forEach(tp => {
+  ['general', 'detalle', 'reparacion'].forEach(tp => {
     const el = $('#dFotos_' + tp); if (!el) return;
     const fs = S.fotos.filter(f => tipoFoto(f) === tp);
     el.innerHTML = fs.map((f, i) => `<img data-i="${i}" src="${f.d}" alt="">`).join('');
@@ -1355,7 +1361,7 @@ async function lamina(n) {
   g.font = '15px sans-serif';
   xs.forEach((x, r) => {
     y += lh; g.fillStyle = r % 2 ? '#f5f7fa' : '#fff'; g.fillRect(m, y - lh / 2, W - 2 * m, lh); g.fillStyle = '#13202c';
-    [codigo(x), tipoTxt(x), x.nota, `G ${nG(x)} · D ${nD(x)}`, x.u].forEach((t, i) => g.fillText(cortar(g, t, wcol(i)), cols[i] + 6, y));
+    [codigo(x), tipoTxt(x), x.nota, fotosCorto(x), x.u].forEach((t, i) => g.fillText(cortar(g, t, wcol(i)), cols[i] + 6, y));
   });
   return cv;
 }
@@ -1403,7 +1409,7 @@ async function exportarZip() {
     for (const x of xs) {
       i++; if ($('#eZip span')) $('#eZip span').textContent = `Fotos ${i} de ${xs.length}…`;
       const s = await getDocs(query(fotosCol(x.id), orderBy('t')));
-      const cuenta = { general: 0, detalle: 0 };
+      const cuenta = { general: 0, detalle: 0, reparacion: 0 };
       s.docs.forEach(d => {
         const f = d.data(), tp = tipoFoto(f), dir = `${base}/Nivel ${x.n}/P${pad(x.p)} T${pad(x.c)}-${pad(x.c + 1)}`;
         z.file(`${dir}/${codigo(x)}_${limpio(tipoTxt(x))}_${tp}_${++cuenta[tp]}.jpg`, f.d.split(',')[1], { base64: true }); nf++;
@@ -1550,7 +1556,7 @@ async function seccionInforme(l, xs, paraCliente, avance, pre = '') {
     avance(`${pre}grilla ${nn(n)}…`);
     sec.niveles.push({
       titulo: `${nivelNom(n, l)} · ${shn}`, img: await grillaPNG(l, inds, n),
-      filas: ys.map(x => [codigo(x), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), estTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || ''])
+      filas: ys.map(x => [codigo(x), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), estTxt(x), fotosCorto(x), x.nota || ''])
     });
   }
   let i = 0;
@@ -1558,11 +1564,12 @@ async function seccionInforme(l, xs, paraCliente, avance, pre = '') {
     avance(`${pre}fotos ${++i} de ${xs.length}…`);
     let fs = [];
     if (x.nf > 0) fs = (await getDocs(query(collection(db, 'levantamientos', l.id, 'indicaciones', x.id, 'fotos'), orderBy('t')))).docs.map(d => d.data());
-    const g = fs.find(f => tipoFoto(f) === 'general'), d = fs.find(f => tipoFoto(f) === 'detalle');
+    const g = fs.find(f => tipoFoto(f) === 'general'), d = fs.find(f => tipoFoto(f) === 'detalle'), r = fs.find(f => tipoFoto(f) === 'reparacion');
     sec.fichas.push({
       titulo: `Nivel ${pad(x.n)}${nombresNiv(l)[x.n - 1] ? ' (' + nombresNiv(l)[x.n - 1] + ')' : ''}, Panel N°${pad(x.p)}, Tubos N°${pad(x.c)}-${pad(x.c + 1)}  ·  ${tipoTxt(x)}`,
       ubic: `${shn} · Código ${codigo(x)} · candado entre los tubos ${x.c} y ${x.c + 1}` + (paraCliente ? '' : ` · registró ${x.u}, ${fecha(x.t)}`),
-      general: await fotoInforme(g, paraCliente, x, 'general', l), detalle: await fotoInforme(d, paraCliente, x, 'detalle', l), obs: x.nota || ''
+      general: await fotoInforme(g, paraCliente, x, 'general', l), detalle: await fotoInforme(d, paraCliente, x, 'detalle', l),
+      reparacion: await fotoInforme(r, paraCliente, x, 'reparacion', l), obs: x.nota || ''
     });
   }
   return sec;
@@ -1594,7 +1601,7 @@ async function datosInforme(avance, paraCliente, alcance = 'sh', prj, kid) {
     c.resumen = esPT(l0) ? `Ensayo de líquidos penetrantes en ${nivelesLev(l0).map(i => nivelNom(i, l0)).join(', ')} · ${l0.p} paneles · ${l0.t - 1} candados por panel · se registran solo los candados con indicación · ${xs.length} indicación(es)`
       : `${l0.n} niveles · ${l0.p} paneles · ${l0.t} tubos por panel (${l0.t - 1} candados) · ${xs.length} indicación(es)`;
     c.conteo = nivelesLev(l0).map(i => `${chipNom(i)}: ${cnt[i] || 0}`).join('    ');
-    c.filas = xs.map(x => [codigo(x), chipNom(x.n), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), estTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || '']);
+    c.filas = xs.map(x => [codigo(x), chipNom(x.n), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), estTxt(x), fotosCorto(x), x.nota || '']);
   } else c.soloResumen = true;
   // resumen de hallazgos de la caldera
   if (prj && kid && !esPT(l0)) {

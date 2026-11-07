@@ -10,6 +10,7 @@ Webapp multiusuario para registrar indicaciones en los candados del sobrecalenta
 - **Estado de cada indicación**: Pendiente (por defecto) o Reparado, desde la ficha de la indicación; aparece como columna en todas las tablas del informe.
 - **Anexo de líquidos penetrantes (PT)**: en la caldera del evento, "Nueva inspección PT" crea una grilla aparte (sobrecalentador + nivel) con tipos Lineal / Redondeada / Otro. Se registran solo los candados con indicación y su informe sale como anexo separado, sin mezclarse con el resumen, los conteos ni el informe de la inspección visual.
 - **Detalle**: cambiar tipo, nota (escrita o dictada), fotos (cámara o galería), quitar.
+- **Foto de reparación (opcional)**: en la ficha de la indicación, tercera sección "Foto de reparación". Al subirla la indicación pasa a Reparado. Solo aparece en tablas, ZIP e informe cuando el candado la tiene; los demás quedan igual.
 - **Girar fotos**: al abrir una foto, los botones ↺ / ↻ la giran 90° y la guardan girada para todos (también en ZIP e informes). Si tenía sello, se vuelve a poner abajo con el usuario y la fecha originales.
 - **Aviso en vivo** cuando otro usuario marca un candado. Arriba se ve el estado: en línea / sin señal / cambios por subir.
 - **Lista** de indicaciones por nivel con resumen por tipo.

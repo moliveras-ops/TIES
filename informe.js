@@ -3,7 +3,7 @@
 // c = { titulo, subtitulo, resumen, conteo, filas: [[código, nivel, panel, candado, indicación, estado, fotos, obs]],
 //       croquis: { titulo, img: {d, w, h} } | null,
 //       niveles: [{ titulo, img: {d, w, h}, filas: [[código, panel, candado, indicación, estado, fotos, obs]] }],
-//       fichas: [{ titulo, ubic, general: {d, w, h} | null, detalle: {d, w, h} | null, obs }], pie }
+//       fichas: [{ titulo, ubic, general: {d, w, h} | null, detalle: {d, w, h} | null, reparacion: {d, w, h} | null (opcional), obs }], pie }
 
 const AZUL = [14, 58, 95], GRIS = [90, 107, 123], CELESTE = [214, 228, 240], SUAVE = [238, 241, 245];
 const COLS_RES = [['Código', 34], ['Nivel', 16], ['Panel', 14], ['Candado', 18], ['Indicación', 30], ['Estado', 20], ['Observaciones', 50]];
@@ -130,7 +130,7 @@ export async function informePDF(c) {
   if (sec.fichas.length) nueva(tDet);
   sec.fichas.forEach((f, i) => {
     texto('', 9.5); const obs = pdf.splitTextToSize(f.obs || 'Sin observaciones.', ANCHO - 4);
-    const alto = 10 + 6 + CH + 7 + 6 + obs.length * 4.4 + 6;
+    const alto = 10 + 6 + CH + 7 + (f.reparacion ? CH + 11 : 0) + 6 + obs.length * 4.4 + 6;
     if (i && y + alto > FIN) nueva(tDet);
     color('setFillColor', SUAVE); pdf.rect(M, y, ANCHO, 9, 'F');
     texto(f.titulo, 12.5, true); pdf.text(f.titulo, M + 3, y + 6.2); y += 14;
@@ -147,6 +147,13 @@ export async function informePDF(c) {
       texto(rot, 9, true, AZUL); pdf.text(rot, x0 + CW / 2, y + CH + 5, { align: 'center' });
     });
     y += CH + 11;
+    // foto de reparación: solo si la indicación la tiene
+    if (f.reparacion) {
+      const im = f.reparacion, e = Math.min(CW / im.w, CH / im.h), iw = im.w * e, ih = im.h * e;
+      pdf.addImage(im.d, 'JPEG', M + (CW - iw) / 2, y + (CH - ih) / 2, iw, ih, undefined, 'FAST');
+      texto('Foto de reparación', 9, true, VERDE_O); pdf.text('Foto de reparación', M + CW / 2, y + CH + 5, { align: 'center' });
+      y += CH + 11;
+    }
     texto('Observaciones', 10, true, AZUL); pdf.text('Observaciones', M + 2, y); y += 5;
     texto('', 9.5); pdf.text(obs, M + 2, y); y += obs.length * 4.4 + 3;
     color('setDrawColor', [201, 211, 222]); pdf.setLineWidth(0.3); pdf.line(M, y, W - M, y); y += 6;
@@ -233,7 +240,7 @@ ${filas.map(f => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${f.map((v, i) => celda(v
     b += `<w:p><w:pPr><w:keepNext/><w:spacing w:before="${i ? 240 : 0}" w:after="60"/><w:shd w:val="clear" w:color="auto" w:fill="${hex(SUAVE)}"/></w:pPr>${run(f.titulo, { b: true, sz: 25 })}</w:p>`;
     b += `<w:p><w:pPr><w:keepNext/><w:spacing w:after="80"/></w:pPr>${run(f.ubic, { sz: 19 })}</w:p>`;
     b += `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders></w:tblPr>
-<w:tblGrid><w:gridCol w:w="${twip(CW + 4)}"/><w:gridCol w:w="${twip(CW + 4)}"/></w:tblGrid><w:tr><w:trPr><w:cantSplit/><w:trHeight w:val="${twip(CH + 10)}"/></w:trPr>${foto('general', 'Foto general')}${foto('detalle', 'Foto de detalle')}</w:tr></w:tbl>`;
+<w:tblGrid><w:gridCol w:w="${twip(CW + 4)}"/><w:gridCol w:w="${twip(CW + 4)}"/></w:tblGrid><w:tr><w:trPr><w:cantSplit/><w:trHeight w:val="${twip(CH + 10)}"/></w:trPr>${f.reparacion ? (foto('general', 'Foto general') + foto('detalle', 'Foto de detalle')).replace(/<w:pPr>/g, '<w:pPr><w:keepNext/>') : foto('general', 'Foto general') + foto('detalle', 'Foto de detalle')}</w:tr>${f.reparacion ? `<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val="${twip(CH + 10)}"/></w:trPr>${foto('reparacion', 'Foto de reparación')}<w:tc><w:tcPr><w:tcW w:w="${twip(CW + 4)}" w:type="dxa"/></w:tcPr><w:p/></w:tc></w:tr>` : ''}</w:tbl>`;
     b += par(run('Observaciones', { b: true, sz: 20, col: AZUL }), { antes: 80, despues: 40 });
     b += par(run(f.obs || 'Sin observaciones.', { sz: 19 }), { despues: 120, borde: true });
   });

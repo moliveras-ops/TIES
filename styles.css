@@ -111,7 +111,7 @@ h3{margin:16px 0 4px}
 }
 .secfoto{background:#fff;border-radius:12px;padding:6px 12px 2px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.1)}
 .secfoto h4{display:flex;align-items:center;gap:6px;margin:8px 0 2px;text-transform:none;letter-spacing:0;font-size:15px;color:var(--azul)}
-.secfoto h4 .ok{color:#2e7d32}.secfoto h4 .pend{color:var(--rojo)}
+.secfoto h4 .ok{color:#2e7d32}.secfoto h4 .opc{color:var(--gris,#5a6b7b);font-weight:400}.secfoto h4 .pend{color:var(--rojo)}
 .secfoto .acciones .btn{margin:6px 0 10px}
 .cqcarga{margin-top:8px}
 .cqtit.sub{margin-top:12px;font-size:13px;color:#5b6b7b}
