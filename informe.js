@@ -10,7 +10,8 @@ const COLS_RES = [['Código', 34], ['Nivel', 16], ['Panel', 14], ['Candado', 18]
 // color de la celda Indicación: rotura en naranjo, grieta en rojo con letra blanca
 const COLOR_IND = {
   Rotura: { fondo: [251, 140, 0], letra: [19, 32, 44] }, Grieta: { fondo: [211, 47, 47], letra: [255, 255, 255] },
-  Desgarro: { fondo: [123, 31, 162], letra: [255, 255, 255] }, Ausencia: { fondo: [255, 213, 79], letra: [19, 32, 44] }, Otro: { fondo: [84, 110, 122], letra: [255, 255, 255] }
+  Desgarro: { fondo: [123, 31, 162], letra: [255, 255, 255] }, Ausencia: { fondo: [255, 213, 79], letra: [19, 32, 44] },
+  Lineal: { fondo: [211, 47, 47], letra: [255, 255, 255] }, Redondeada: { fondo: [251, 140, 0], letra: [19, 32, 44] }, Otro: { fondo: [84, 110, 122], letra: [255, 255, 255] }
 };
 // color de la celda Estado: reparado en verde, pendiente en ámbar
 const COLOR_EST = { Reparado: { fondo: [46, 125, 50], letra: [255, 255, 255] }, Pendiente: { fondo: [255, 224, 178], letra: [19, 32, 44] } };

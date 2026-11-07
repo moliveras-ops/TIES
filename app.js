@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.7.0';
+const VERSION = '2.8.0';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Ausencia', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -60,6 +60,12 @@ const codigo = x => `N${x.n}-P${pad(x.p)}-T${pad(x.c)}-${pad(x.c + 1)}`;
 const tipoTxt = x => x.k === 'Otro' && x.o ? x.o : x.k;
 // estado de reparación: campo es = 'Reparado'; sin campo = Pendiente
 const ESTADOS = ['Pendiente', 'Reparado'];
+// líquidos penetrantes (PT): levantamiento aparte con met = 'PT' y nv = [niveles ensayados]; se informa como anexo separado
+const TIPOS_PT = ['Lineal', 'Redondeada', 'Otro'];
+const esPT = l => l?.met === 'PT';
+const tiposDe = l => esPT(l) ? TIPOS_PT : TIPOS;
+const nivelesLev = l => l?.nv?.length ? [...l.nv].sort((a, b) => a - b) : range(l?.n || 1);
+const ajNivel = (l, n) => { const v = nivelesLev(l); return v.includes(n) ? n : v[0]; };
 const estTxt = x => x.es === 'Reparado' ? 'Reparado' : 'Pendiente';
 // tipo para contar: un "Otro" escrito como "Ausencia" (registros antiguos) cuenta como Ausencia
 const tipoK = x => x.k === 'Otro' && /^ausencia$/i.test((x.o || '').trim()) ? 'Ausencia' : x.k;
@@ -197,7 +203,7 @@ function pantallaIngreso(err = '') {
 // hallazgos por nivel de las otras grillas de la caldera en el evento (para pintar el croquis en rojo)
 S.cntLev = {}; S.subsCnt = {};
 function seguirConteos(prj, kid) {
-  const quiero = new Set(S.levs.filter(l => l.prj === prj && l.kid === kid).map(l => l.id));
+  const quiero = new Set(S.levs.filter(l => l.prj === prj && l.kid === kid && !esPT(l)).map(l => l.id));
   Object.keys(S.subsCnt).forEach(id => { if (!quiero.has(id)) { S.subsCnt[id](); delete S.subsCnt[id]; } });
   quiero.forEach(id => {
     if (S.subsCnt[id]) return;
@@ -236,7 +242,7 @@ const antiguosDe = kid => S.levs.filter(l => l.kid === kid && !l.prj);
 // "Arauco · Valdivia · Caldera Recuperadora"
 const rutaTxt = l => [cli(l.cid)?.nombre, pla(l.pid)?.nombre, cal(l.kid)?.nombre].filter(Boolean).join(' · ');
 // Cliente · Planta · Evento · Caldera · Sobrecalentador
-const nombreCompleto = l => [cli(l.cid)?.nombre, pla(l.pid)?.nombre, l.nombre, cal(l.kid)?.nombre, sobre(l.sid)?.nombre].filter(Boolean).join(' · ');
+const nombreCompleto = l => [cli(l.cid)?.nombre, pla(l.pid)?.nombre, l.nombre, cal(l.kid)?.nombre, sobre(l.sid)?.nombre, esPT(l) ? 'Líquidos penetrantes' : ''].filter(Boolean).join(' · ');
 const nombresNiv = (l = S.lev) => sobre(l?.sid)?.nn || l?.nn || [];
 const nivelNom = (i, l) => nombresNiv(l)[i - 1] || `Nivel ${i}`;
 const chipNom = i => nombresNiv()[i - 1] || `N${i}`;
@@ -249,7 +255,7 @@ const nInspC = (l, cnt) => l ? range(l.n).filter(n => insNiv(l, n, cnt)).length 
 // paneles inspeccionados dentro de cada nivel: lev.ip = { 'N3_P12': { u, t } | null }
 const inspP = (l, n, p) => l?.ip?.[`N${n}_P${p}`] || null;
 const nPanInsp = (l, n) => l ? range(l.p).filter(p => inspP(l, n, p)).length : 0;
-const levEv = (prj, sid) => S.levs.find(l => l.prj === prj && l.sid === sid);
+const levEv = (prj, sid) => S.levs.find(l => l.prj === prj && l.sid === sid && !esPT(l));
 const inspTxt = l => l ? `${nInspC(l, conteoSH(l.prj, l.sid))} de ${l.n} niveles inspeccionados` : 'sin iniciar';
 const dimTxt = x => `${x.p} paneles · ${x.t} tubos · ${x.n} niveles`;
 
@@ -359,7 +365,8 @@ function vistaCliente() {
 }
 
 const eventosDe = pid => S.cat.proyectos.filter(x => x.pid === pid).sort((a, b) => (b.anio || 0) - (a.anio || 0) || b.c - a.c);
-const levsDe = (prj, kid) => S.levs.filter(l => l.prj === prj && (!kid || l.kid === kid));
+const levsDe = (prj, kid) => S.levs.filter(l => l.prj === prj && (!kid || l.kid === kid) && !esPT(l));
+const ptsDe = (prj, kid) => S.levs.filter(l => l.prj === prj && l.kid === kid && esPT(l));
 
 function vistaPlanta() {
   const p = pla(S.ruta.pid), c = cli(S.ruta.cid); if (!p) return ir({ cid: S.ruta.cid });
@@ -445,7 +452,7 @@ function vistaEvento() {
 function vistaEventoCaldera() {
   const e = proy(S.ruta.prj), k = cal(S.ruta.kid); if (!e || !k) return ir({ cid: S.ruta.cid, pid: S.ruta.pid, prj: S.ruta.prj });
   titulo(`${k.nombre} · ${e.nombre}`);
-  const shs = shDe(k.id), levs = levsDe(e.id, k.id), huerfanos = levs.filter(l => !shs.some(x => x.id === l.sid));
+  const shs = shDe(k.id), levs = levsDe(e.id, k.id), huerfanos = levs.filter(l => !shs.some(x => x.id === l.sid)), pts = ptsDe(e.id, k.id);
   const cq = bloqueCroquis(k.id);
   app.innerHTML = cabSimple(esc(k.nombre), `${esc(e.nombre)} · ${esc(pla(e.pid)?.nombre || '')}`) +
     `<div class="${cq ? 'vgr siempre' : ''}">${cq ? `<aside class="lado">${cq}</aside>` : ''}<div>` +
@@ -455,6 +462,9 @@ function vistaEventoCaldera() {
       return itemNav(`data-sid="${x.id}"`, 'grilla', esc(x.nombre), l ? `${inspTxt(l)} · iniciado por ${esc(l.u)}` : `${dimTxt(x)} · sin iniciar`);
     }).join('') || '<p class="vacio">Esta caldera no tiene sobrecalentadores.</p>') +
     huerfanos.map(l => itemNav(`data-id="${l.id}"`, 'grilla', esc(l.nombre), 'Sobrecalentador eliminado de la caldera')).join('') +
+    `<h3>Anexos · líquidos penetrantes</h3>` +
+    pts.map(l => itemNav(`data-id="${l.id}"`, 'grilla', esc(sobre(l.sid)?.nombre || l.nombre), `PT · ${nivelesLev(l).map(n => nivelNom(n, l)).join(', ')} · iniciado por ${esc(l.u)}`)).join('') +
+    `<button class="btn" id="bPT">${ic('grilla')}Nueva inspección PT</button>` +
     `<button class="btn pri" id="bRes">${ic('lista')}Resumen de hallazgos</button><button class="btn" id="bInfC">${ic('informe')}Informe de la caldera completa</button><button class="btn" id="bCfg">${ic('ajustes')}Configurar sobrecalentadores</button></div></div>`;
   $('#bRes').onclick = () => resumenHallazgos(e.id, k.id);
   $('#bInfC').onclick = () => menuInforme(e.id, k.id);
@@ -462,6 +472,32 @@ function vistaEventoCaldera() {
   app.querySelectorAll('[data-sid]').forEach(b => b.onclick = () => abrirSobre(e, k, sobre(b.dataset.sid)));
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
   $('#bCfg').onclick = () => ir({ cid: k.cid, pid: k.pid, kid: k.id });
+  $('#bPT').onclick = () => nuevaPT(e, k);
+}
+
+// nueva inspección por líquidos penetrantes: elegir sobrecalentador y nivel (solo se registran candados con indicación)
+function nuevaPT(e, k) {
+  const shs = shDe(k.id); if (!shs.length) return toast('La caldera no tiene sobrecalentadores');
+  const niv = x => range(x.n).map(j => `<option value="${j}" ${j === x.n ? 'selected' : ''}>${esc((x.nn || [])[j - 1] || 'Nivel ' + j)}</option>`).join('');
+  hoja(`<h3>Nueva inspección PT</h3><p class="nota">Líquidos penetrantes. Registra solo los candados con indicación; el informe sale como anexo separado de la inspección visual.</p>
+    <label>Sobrecalentador<select id="ptSh">${shs.map(x => `<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></label>
+    <label>Nivel<select id="ptN">${niv(shs[0])}</select></label>
+    <div class="acciones"><button class="btn" data-x>Cancelar</button><button class="btn pri" id="ptOk">Crear</button></div>`);
+  $('#modal').querySelectorAll('[data-x]').forEach(b => b.onclick = cerrarModal);
+  $('#ptSh').onchange = () => { $('#ptN').innerHTML = niv(sobre($('#ptSh').value)); };
+  $('#ptOk').onclick = () => {
+    const x = sobre($('#ptSh').value), n = +$('#ptN').value, ya = ptsDe(e.id, k.id).find(l => l.sid === x.id);
+    cerrarModal();
+    if (ya) {
+      if (!nivelesLev(ya).includes(n)) { ya.nv = [...nivelesLev(ya), n]; updateDoc(levRef(ya.id), { nv: ya.nv }).catch(errEsc); }
+      S.nivelPend = n; return abrirLev(ya.id);
+    }
+    const ref = doc(collection(db, 'levantamientos'));
+    const d = { nombre: e.nombre, anio: e.anio, cid: k.cid, pid: k.pid, kid: k.id, prj: e.id, sid: x.id, p: x.p, n: x.n, t: x.t, nn: x.nn || [], met: 'PT', nv: [n], c: Date.now(), u: S.nombre, uid: S.uid };
+    setDoc(ref, d).catch(errEsc);
+    S.levs = [{ id: ref.id, ...d }, ...S.levs];
+    S.nivelPend = n; abrirLev(ref.id);
+  };
 }
 
 // abre la grilla de candados del sobrecalentador en el evento (la crea la primera vez)
@@ -539,14 +575,14 @@ function formEvento(e, p) {
 function tituloLev() {
   if (!S.lev) return;
   const x = sobre(S.lev.sid), k = cal(S.lev.kid);
-  titulo(x ? `${x.nombre} · ${S.lev.nombre}` : k ? `${k.nombre} · ${S.lev.nombre}` : S.lev.nombre);
+  titulo((x ? `${x.nombre} · ${S.lev.nombre}` : k ? `${k.nombre} · ${S.lev.nombre}` : S.lev.nombre) + (esPT(S.lev) ? ' · PT' : ''));
 }
 
 function abrirLev(id) {
   const l = S.levs.find(x => x.id === id); if (!l) return;
   guardia();
   S.lev = l; S.levId = id; ls.set('ties_lev', id);
-  S.nivel = Math.min(S.nivelPend || ls.get('ties_nivel_' + id, 1), l.n); S.nivelPend = null; ls.set('ties_nivel_' + id, S.nivel);
+  S.nivel = ajNivel(l, Math.min(S.nivelPend || ls.get('ties_nivel_' + id, 1), l.n)); S.nivelPend = null; ls.set('ties_nivel_' + id, S.nivel);
   S.inds = new Map(); S.primera = true; S.vista = 'grilla'; S.filtroN = 0;
   if (l.kid) { S.ruta = { cid: l.cid, pid: l.pid, prj: l.prj || null, kid: l.kid }; ls.set('ties_ruta', S.ruta); }
   tituloLev();
@@ -576,7 +612,7 @@ function cerrarLev() {
 // ---------- pantalla del levantamiento ----------
 function render() {
   if (!S.lev) return;
-  S.nivel = Math.min(Math.max(1, S.nivel), S.lev.n);
+  S.nivel = ajNivel(S.lev, Math.min(Math.max(1, S.nivel), S.lev.n));
   const w = $('#gwrap'), sx = w?.scrollLeft || 0, wy = window.scrollY;
   app.innerHTML = (S.vista === 'lista' ? vistaLista() : vistaGrilla()) + barraInferior();
   const w2 = $('#gwrap'); if (w2) w2.scrollLeft = sx;
@@ -885,12 +921,12 @@ function conectarCroquis(kid, prj) {
 
 function vistaGrilla() {
   const l = S.lev, n = S.nivel, cnt = conteoNiveles();
-  const chips = range(l.n).map(i => `<button class="chip ${i === n ? 'on' : ''} ${insNiv(l, i, cnt) ? 'ins' : ''}" data-n="${i}">${insNiv(l, i, cnt) ? '<b class="chk">✓</b>' : ''}${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
-  const cq = l.prj && l.sid ? bloqueCroquis(l.kid) : '', ins = inspN(l, n);
+  const chips = nivelesLev(l).map(i => `<button class="chip ${i === n ? 'on' : ''} ${insNiv(l, i, cnt) ? 'ins' : ''}" data-n="${i}">${insNiv(l, i, cnt) ? '<b class="chk">✓</b>' : ''}${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
+  const cq = l.prj && l.sid && !esPT(l) ? bloqueCroquis(l.kid) : '', ins = inspN(l, n);
   const bIns = `<div class="insbar ${ins ? 'ok' : ''}">${ins ? `<span>${ic('lista', 20)} <b>${esc(nivelNom(n))} inspeccionado</b> por ${esc(ins.u)} · ${fecha(ins.t)}</span><button class="btn chico" id="bIns">Desmarcar</button>`
     : `<span>${esc(nivelNom(n))} sin marcar · ${nPanInsp(l, n)} de ${l.p} paneles inspeccionados</span><button class="btn chico pri" id="bIns">Marcar nivel como inspeccionado</button>`}</div>`;
   const bCq = cq ? `<button class="chip cqchip" id="bCq">${ic('caldera', 22)}Croquis</button>` : '';
-  return cabNivel(`<b>Candados — ${esc(nivelNom(n))}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, bCq + chips) +
+  return cabNivel(`<b>${esPT(l) ? 'Líquidos penetrantes' : 'Candados'} — ${esc(nivelNom(n))}</b><span>${cnt[n] || 0} indicación(es) · ${S.inds.size} en total</span>`, bCq + chips) +
     `<div class="${cq ? 'vgr' : ''}">${cq ? `<aside class="lado">${cq}</aside>` : ''}<div>${bIns}
     <div class="gwrap" id="gwrap">${comoImg(svgNivel(n))}</div>
     <div class="leyenda"><span class="ley"><span class="sw ind"></span>falta foto general o de detalle</span><span class="ley"><span class="sw foto"></span>con general y detalle</span>
@@ -902,9 +938,9 @@ function vistaLista() {
   const xs = [...S.inds.values()].filter(x => !f || x.n === f).sort(ordenar);
   const porTipo = {}; xs.forEach(x => porTipo[tipoK(x)] = (porTipo[tipoK(x)] || 0) + 1);
   const chips = `<button class="chip ${!f ? 'on' : ''}" data-f="0">Todos<i>${S.inds.size}</i></button>` +
-    range(l.n).map(i => `<button class="chip ${i === f ? 'on' : ''}" data-f="${i}">${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
-  return cabNivel(`<b>Indicaciones${f ? ' — ' + esc(nivelNom(f)) : ''}</b><span>${xs.length}${Object.keys(porTipo).length ? ' · ' + TIPOS.filter(t => porTipo[t]).map(t => `${t} ${porTipo[t]}`).join(' · ') : ''}</span>`, chips) +
-    (l.prj ? `<button class="btn pri resbtn" id="bResL">${ic('lista')}Resumen de hallazgos de la caldera</button>` : '') +
+    nivelesLev(l).map(i => `<button class="chip ${i === f ? 'on' : ''}" data-f="${i}">${esc(chipNom(i))}${cnt[i] ? `<i>${cnt[i]}</i>` : ''}</button>`).join('');
+  return cabNivel(`<b>Indicaciones${f ? ' — ' + esc(nivelNom(f)) : ''}</b><span>${xs.length}${Object.keys(porTipo).length ? ' · ' + tiposDe(l).filter(t => porTipo[t]).map(t => `${t} ${porTipo[t]}`).join(' · ') : ''}</span>`, chips) +
+    (l.prj && !esPT(l) ? `<button class="btn pri resbtn" id="bResL">${ic('lista')}Resumen de hallazgos de la caldera</button>` : '') +
     (xs.map(x => `<button class="item ind" data-k="${x.id}"><span class="badge ${completa(x) ? 'foto' : 'ind'}">${esc(ini(x))}</span>
       <div><b>${codigo(x)}</b> · ${esc(tipoTxt(x))}${x.nota ? `<br><span class="nt">${esc(x.nota)}</span>` : ''}
       <small>${esc(x.u)} · ${fecha(x.t)}${x.uu && x.uu !== x.u ? ` · editó ${esc(x.uu)}` : ''} · ${ic('camara', 14)} ${fotosTxt(x)}</small></div></button>`).join('')
@@ -1013,7 +1049,7 @@ function tocarCandado(p, c) {
   const cod = codigo({ n, p, c });
   hoja(`<div class="dcab"><h3>${cod}</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div>
     <p class="nota">Nivel ${n} · panel ${p} · candado entre tubos ${c} y ${c + 1}</p>
-    <div class="tipos">${TIPOS.map(t => `<button class="btn" data-t="${t}">${t}</button>`).join('')}</div>`);
+    <div class="tipos">${tiposDe(S.lev).map(t => `<button class="btn" data-t="${t}">${t}</button>`).join('')}</div>`);
   $('#modal').querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
     let o = '';
     if (b.dataset.t === 'Otro') { o = prompt('Describe la indicación', ''); if (o === null) return; o = o.trim(); }
@@ -1138,7 +1174,7 @@ function refrescarDetalle() {
   const x = S.inds.get(S.detalle);
   if (!x) { toast('Otro usuario quitó esta indicación'); S.notaSucia = false; return cerrarModal(); }
   const t = $('#dTipos'); if (!t) return;
-  t.innerHTML = TIPOS.map(tp => `<button class="btn ${x.k === tp ? 'on' : ''}" data-tp="${tp}">${tp === 'Otro' && x.k === 'Otro' && x.o ? 'Otro: ' + esc(x.o) : tp}</button>`).join('');
+  t.innerHTML = tiposDe(S.lev).map(tp => `<button class="btn ${x.k === tp ? 'on' : ''}" data-tp="${tp}">${tp === 'Otro' && x.k === 'Otro' && x.o ? 'Otro: ' + esc(x.o) : tp}</button>`).join('');
   t.querySelectorAll('[data-tp]').forEach(b => b.onclick = () => cambiarTipo(b.dataset.tp));
   const es = $('#dEst');
   if (es) {
@@ -1371,7 +1407,7 @@ async function resumenHallazgos(prj, kid) {
   const e = proy(prj); if (!e) return;
   const ks = S.cat.calderas.filter(k => k.pid === e.pid && (!kid || k.id === kid));
   hoja(`<div class="dcab"><h3>Resumen de hallazgos</h3><button class="x" data-x>${ic('cerrar', 28)}</button></div><p class="nota">Cargando…</p>`);
-  const levs = S.levs.filter(l => l.prj === prj && (!kid || l.kid === kid)), inds = new Map();
+  const levs = S.levs.filter(l => l.prj === prj && (!kid || l.kid === kid) && !esPT(l)), inds = new Map();
   try {
     await Promise.all(levs.map(async l => {
       const s = await getDocs(collection(db, 'levantamientos', l.id, 'indicaciones'));
@@ -1442,7 +1478,7 @@ async function grillaPNG(l, inds, n) {
 
 // niveles (grilla + tabla) y fichas con fotos de una grilla
 async function seccionInforme(l, xs, paraCliente, avance, pre = '') {
-  const shn = sobre(l.sid)?.nombre || 'Sobrecalentador', inds = new Map(xs.map(x => [x.id, x])), sec = { titulo: shn, niveles: [], fichas: [] };
+  const shn = (sobre(l.sid)?.nombre || 'Sobrecalentador') + (esPT(l) ? ' · líquidos penetrantes' : ''), inds = new Map(xs.map(x => [x.id, x])), sec = { titulo: shn, niveles: [], fichas: [] };
   const nn = n => nombresNiv(l)[n - 1] || 'N' + n;
   for (const n of range(l.n)) {
     const ys = xs.filter(x => x.n === n); if (!ys.length) continue;
@@ -1474,28 +1510,29 @@ async function datosInforme(avance, paraCliente, alcance = 'sh', prj, kid) {
   const e = proy(prj), k = cal(kid), cliId = l0?.cid || k?.cid;
   const base = l0 ? nombreCompleto(l0) : [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, e?.nombre, k?.nombre].filter(Boolean).join(' · ');
   const c = {
-    titulo: alcance === 'caldera' ? 'Inspección de candados · caldera completa' : 'Inspección de candados',
+    titulo: esPT(l0) ? 'Anexo · Inspección de candados por líquidos penetrantes' : alcance === 'caldera' ? 'Inspección de candados · caldera completa' : 'Inspección de candados',
     subtitulo: paraCliente ? base : `${base} · ${fecha(Date.now()).slice(0, 10)}`,
-    secciones: [], pie: paraCliente ? 'Informe de inspección de candados' : 'TIES · Informe de candados · uso interno'
+    secciones: [], pie: esPT(l0) ? (paraCliente ? 'Anexo · líquidos penetrantes' : 'TIES · Anexo PT · uso interno') : paraCliente ? 'Informe de inspección de candados' : 'TIES · Informe de candados · uso interno'
   };
   c.logos = (await Promise.all([cli(cliId)?.logo, logoEmpresa()].filter(Boolean).map(medir))).filter(Boolean);
   // indicaciones de todas las grillas de la caldera en el evento
   const inds = new Map();
-  if (prj && kid) {
+  if (prj && kid && !esPT(l0)) {
     avance('Leyendo la caldera…');
-    const levs = S.levs.filter(v => v.prj === prj && v.kid === kid);
+    const levs = S.levs.filter(v => v.prj === prj && v.kid === kid && !esPT(v));
     await Promise.all(levs.map(async v => inds.set(v.id, S.lev && v.id === S.lev.id ? [...S.inds.values()].sort(ordenar)
       : (await getDocs(collection(db, 'levantamientos', v.id, 'indicaciones'))).docs.map(d => ({ id: d.id, ...d.data() })).sort(ordenar))));
     inds.forEach((ys, id) => { if (!S.lev || id !== S.lev.id) { const cc = {}; ys.forEach(y => cc[y.n] = (cc[y.n] || 0) + 1); S.cntLev[id] = cc; } });
   }
   if (l0) {
     const xs = [...S.inds.values()].sort(ordenar), cnt = conteoNiveles();
-    c.resumen = `${l0.n} niveles · ${l0.p} paneles · ${l0.t} tubos por panel (${l0.t - 1} candados) · ${xs.length} indicación(es)`;
-    c.conteo = range(l0.n).map(i => `${chipNom(i)}: ${cnt[i] || 0}`).join('    ');
+    c.resumen = esPT(l0) ? `Ensayo de líquidos penetrantes en ${nivelesLev(l0).map(i => nivelNom(i, l0)).join(', ')} · ${l0.p} paneles · ${l0.t - 1} candados por panel · se registran solo los candados con indicación · ${xs.length} indicación(es)`
+      : `${l0.n} niveles · ${l0.p} paneles · ${l0.t} tubos por panel (${l0.t - 1} candados) · ${xs.length} indicación(es)`;
+    c.conteo = nivelesLev(l0).map(i => `${chipNom(i)}: ${cnt[i] || 0}`).join('    ');
     c.filas = xs.map(x => [codigo(x), chipNom(x.n), pad(x.p), `T${pad(x.c)}-${pad(x.c + 1)}`, tipoTxt(x), estTxt(x), `G ${nG(x)} · D ${nD(x)}`, x.nota || '']);
   } else c.soloResumen = true;
   // resumen de hallazgos de la caldera
-  if (prj && kid) {
+  if (prj && kid && !esPT(l0)) {
     const todas = [...inds.values()].flat(), shs = shDe(kid);
     let totN = 0, insN = 0;
     const cntDe = v => { const c = {}; (v ? inds.get(v.id) || [] : []).forEach(y => c[y.n] = (c[y.n] || 0) + 1); return c; };
@@ -1516,7 +1553,7 @@ async function datosInforme(avance, paraCliente, alcance = 'sh', prj, kid) {
     };
   }
   // croquis de la caldera (con el sobrecalentador marcado si es de uno solo)
-  if (k && (k.img || shDe(k.id).length)) {
+  if (k && !esPT(l0) && (k.img || shDe(k.id).length)) {
     avance('Croquis…');
     const sid = l0?.sid || null, cnt = l0 ? conteoNiveles() : {};
     let img = k.cqmap?.cols?.length ? await imagenMapa(k, { sid, cnt }) : k.img ? await medir(k.img) : null;
@@ -1545,15 +1582,15 @@ async function datosInforme(avance, paraCliente, alcance = 'sh', prj, kid) {
 // prj/kid: caldera en el evento; desde la grilla se puede elegir el sobrecalentador o toda la caldera
 function menuInforme(prj, kid) {
   const desdeGrilla = !prj && S.lev; prj = prj || S.lev?.prj; kid = kid || S.lev?.kid;
-  const k = cal(kid), cliId = k?.cid || S.lev?.cid, conCal = !!(prj && kid);
+  const k = cal(kid), cliId = k?.cid || S.lev?.cid, pt = desdeGrilla && esPT(S.lev), conCal = !!(prj && kid) && !pt;
   const alc = !desdeGrilla ? 'caldera' : ls.get('ties_inf_alc', 'sh') === 'caldera' && conCal ? 'caldera' : 'sh';
   const xs = desdeGrilla ? [...S.inds.values()] : [], faltan = xs.filter(x => !completa(x)).length;
-  hoja(`<h3>Informe de candados</h3>
+  hoja(`<h3>${pt ? 'Anexo · líquidos penetrantes' : 'Informe de candados'}</h3>
     <p class="nota">${esc(desdeGrilla ? nombreCompleto(S.lev) : [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, proy(prj)?.nombre, k?.nombre].filter(Boolean).join(' · '))}</p>
     ${desdeGrilla && conCal ? `<h4>Alcance</h4><div class="version">
       <label><input type="radio" name="iAlc" value="sh" ${alc === 'sh' ? 'checked' : ''}><span><b>Este sobrecalentador</b><small>${esc(sobre(S.lev.sid)?.nombre || '')}</small></span></label>
       <label><input type="radio" name="iAlc" value="caldera" ${alc === 'caldera' ? 'checked' : ''}><span><b>Toda la caldera</b><small>${plural(shDe(kid).length, 'sobrecalentador', 'sobrecalentadores')} en un solo informe</small></span></label></div>` : ''}
-    <p class="nota">Resumen de hallazgos de la caldera, croquis, una hoja por nivel con su grilla y su tabla, y el detalle de cada candado con foto general, foto de detalle y observaciones.</p>
+    <p class="nota">${pt ? 'Anexo separado de la inspección visual: una hoja por nivel ensayado con su grilla y su tabla, y el detalle de cada candado con indicación, con foto general, foto de detalle y observaciones.</p><p class="nota" hidden>' : ''}Resumen de hallazgos de la caldera, croquis, una hoja por nivel con su grilla y su tabla, y el detalle de cada candado con foto general, foto de detalle y observaciones.</p>
     ${faltan ? `<p class="aviso">${ic('camara', 18)} ${plural(faltan, 'indicación no tiene', 'indicaciones no tienen')} las dos fotos; en el informe aparecerá "Sin foto".</p>` : ''}
     <h4>Versión</h4><div class="version"><label><input type="radio" name="iVer" value="cliente" ${ls.get('ties_inf_ver', 'cliente') === 'cliente' ? 'checked' : ''}><span><b>Para el cliente</b><small>Sin fechas del levantamiento ni quién lo registró; fotos sin sello</small></span></label>
       <label><input type="radio" name="iVer" value="interno" ${ls.get('ties_inf_ver', 'cliente') === 'interno' ? 'checked' : ''}><span><b>Interno</b><small>Con fecha, responsables y fotos con sello</small></span></label></div>
@@ -1580,7 +1617,7 @@ async function generarInforme(tipo, alcance, prj, kid) {
     const m = await import('./informe.js');
     const blob = tipo === 'pdf' ? await m.informePDF(c) : await m.informeWord(c);
     const k = cal(kid), base = alcance === 'caldera' ? [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, proy(prj)?.nombre, k?.nombre].filter(Boolean).join(' · ') + ' completa' : nombreCompleto(S.lev);
-    const nombre = `Informe candados ${limpio(base)}${cliente ? '' : ' INTERNO ' + hoy()}.${tipo}`;
+    const nombre = `${esPT(S.lev) && alcance === 'sh' ? 'Anexo PT candados' : 'Informe candados'} ${limpio(base)}${cliente ? '' : ' INTERNO ' + hoy()}.${tipo}`;
     hoja(`<h3>Informe listo</h3><p>${alcance === 'caldera' ? 'Caldera completa' : 'Sobrecalentador'} · ${cliente ? 'para el cliente' : 'interno'} · ${tipo === 'pdf' ? 'PDF' : 'Word'} · ${c.total} indicación(es) · ${(blob.size / 1048576).toFixed(1)} MB</p>
       <button class="btn pri" id="zSh">${ic('compartir')}Compartir</button><button class="btn" id="zDes">${ic('bajar')}Guardar en Descargas</button>
       <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
