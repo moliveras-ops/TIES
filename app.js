@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.8.1';
+const VERSION = '2.9.0';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Ausencia', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -27,6 +27,8 @@ const IC = {
   galeria: 'M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2zm-11-4 2.03 2.71L16 11l4 5H8l3-4zM2 6v14c0 1.1.9 2 2 2h14v-2H4V6H2z',
   mic: 'M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z',
   borrar: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
+  girarI: 'M7.11 8.53 5.7 7.11C4.8 8.27 4.24 9.61 4.07 11h2.02c.14-.87.49-1.72 1.02-2.47zM6.09 13H4.07c.17 1.39.72 2.73 1.62 3.89l1.41-1.42c-.52-.75-.87-1.59-1.01-2.47zm1.01 5.32c1.16.9 2.51 1.44 3.9 1.61V17.9c-.87-.15-1.71-.49-2.46-1.03L7.1 18.32zM13 4.07V1L8.45 5.55 13 10V6.09c2.84.48 5 2.94 5 5.91s-2.16 5.43-5 5.91v2.02c3.95-.49 7-3.85 7-7.93s-3.05-7.44-7-7.93z',
+  girarD: 'M15.55 5.55 11 1v3.07C7.06 4.56 4 7.92 4 12s3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91s2.16-5.43 5-5.91V10l4.55-4.45zM19.93 11c-.17-1.39-.72-2.73-1.62-3.89l-1.42 1.42c.54.75.88 1.6 1.02 2.47h2.02zM13 17.9v2.02c1.39-.17 2.74-.71 3.9-1.61l-1.44-1.44c-.75.54-1.59.89-2.46 1.03zm3.89-2.42 1.42 1.41c.9-1.16 1.45-2.5 1.62-3.89h-2.02c-.14.87-.48 1.72-1.02 2.48z',
   bajar: 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z',
   planilla: 'M3 3v18h18V3H3zm8 16H5v-6h6v6zm0-8H5V5h6v6zm8 8h-6v-6h6v6zm0-8h-6V5h6v6z',
   zip: 'M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5 6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z',
@@ -1129,16 +1131,39 @@ async function comprimir(file, x, tp) {
     const w = Math.round(src.width * s), h = Math.round(src.height * s), bh = sello ? Math.max(48, Math.round(w * 0.07)) : 0;
     const cv = document.createElement('canvas'); cv.width = w; cv.height = h + bh;
     const g = cv.getContext('2d'); g.drawImage(src, 0, 0, w, h);
-    if (sello) {
-      const fs = Math.round(bh * 0.34);
-      g.fillStyle = '#0E3A5F'; g.fillRect(0, h, w, bh); g.textBaseline = 'middle';
-      g.fillStyle = '#fff'; g.font = `bold ${fs}px sans-serif`; g.fillText(`${codigo(x)} · ${tipoTxt(x)}${tp ? ' · ' + FT[tp] : ''}`, fs * 0.6, h + bh * 0.3);
-      g.fillStyle = '#F5A300'; g.font = `${Math.round(fs * 0.8)}px sans-serif`; g.fillText(`${nombreCompleto(S.lev)} · ${S.nombre} · ${fecha(Date.now())}`, fs * 0.6, h + bh * 0.72);
-    }
-    for (const q of [0.75, 0.62, 0.5]) { const d = cv.toDataURL('image/jpeg', q); if (d.length < 900000) return d; }
+    if (sello) dibujarSello(g, w, h, bh, x, tp, S.nombre, Date.now());
+    const d = jpegBajo(cv); if (d) return d;
     max = Math.round(max * 0.75);
   }
   throw new Error('foto demasiado grande');
+}
+const altoSello = w => Math.max(48, Math.round(w * 0.07));
+const jpegBajo = cv => { for (const q of [0.75, 0.62, 0.5]) { const d = cv.toDataURL('image/jpeg', q); if (d.length < 900000) return d; } return null; };
+function dibujarSello(g, w, h, bh, x, tp, u, t) {
+  const fs = Math.round(bh * 0.34);
+  g.fillStyle = '#0E3A5F'; g.fillRect(0, h, w, bh); g.textBaseline = 'middle';
+  g.fillStyle = '#fff'; g.font = `bold ${fs}px sans-serif`; g.fillText(`${codigo(x)} · ${tipoTxt(x)}${tp ? ' · ' + FT[tp] : ''}`, fs * 0.6, h + bh * 0.3);
+  g.fillStyle = '#F5A300'; g.font = `${Math.round(fs * 0.8)}px sans-serif`; g.fillText(`${nombreCompleto(S.lev)} · ${u} · ${fecha(t)}`, fs * 0.6, h + bh * 0.72);
+}
+// alto de la franja azul del sello al pie de la foto (0 si no tiene)
+function bandaSello(im) {
+  const w = im.naturalWidth, h = im.naturalHeight;
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const g = cv.getContext('2d'); g.drawImage(im, 0, 0);
+  const px = g.getImageData(0, 0, 4, h).data, azul = y => { const i = (y * 4 + 1) * 4; return Math.abs(px[i] - 14) < 22 && Math.abs(px[i + 1] - 58) < 22 && Math.abs(px[i + 2] - 95) < 22; };
+  let y = h - 1; while (y > h * 0.75 && azul(y)) y--;
+  const b = h - 1 - y, e = altoSello(w);
+  return b < 30 ? 0 : Math.abs(b - e) <= 4 ? e : b;   // el JPEG difumina el borde: usar el alto exacto con que se dibujó
+}
+// gira la foto 90° (dir = 1 horario, -1 antihorario); si tenía sello, lo vuelve a poner abajo con el usuario y la fecha originales
+async function girarFoto(f, dir, x, tp) {
+  const im = await cargarImg(f.d), w = im.naturalWidth, banda = bandaSello(im), h = im.naturalHeight - banda;
+  const bh = banda ? altoSello(h) : 0;
+  const cv = document.createElement('canvas'); cv.width = h; cv.height = w + bh;
+  const g = cv.getContext('2d');
+  g.save(); g.translate(h / 2, w / 2); g.rotate(dir * Math.PI / 2); g.drawImage(im, 0, 0, w, h, -w / 2, -h / 2, w, h); g.restore();
+  if (banda) dibujarSello(g, h, w, bh, x, tp, f.u, f.t);
+  const d = jpegBajo(cv); if (!d) throw new Error('foto demasiado grande');
+  return d;
 }
 
 // ---------- detalle de una indicación ----------
@@ -1209,6 +1234,12 @@ function pintarFotos() {
       const f = fs[+im.dataset.i], x = S.inds.get(S.detalle), j = +im.dataset.i + 1;
       visor(f.d, {
         titulo: `${codigo(x)} · ${FT[tp].toLowerCase()} ${j} · ${f.u}`, nombre: `${codigo(x)}_${limpio(tipoTxt(x))}_${tp}_${j}.jpg`,
+        girar: async dir => {
+          const d = await girarFoto(f, dir, S.inds.get(S.detalle) || x, tp);
+          f.d = d; updateDoc(doc(fotosCol(S.detalle), f.id), { d, gu: S.nombre, gt: Date.now() }).catch(errEsc);
+          updateDoc(indRef(S.detalle), { uu: S.nombre, ut: Date.now() }).catch(errEsc);
+          return d;
+        },
         eliminar: () => {
           if (!confirm('¿Eliminar esta foto para todos?')) return;
           const b = writeBatch(db);
@@ -1261,17 +1292,27 @@ async function compartir(blob, nombre) {
   descargar(blob, nombre);
 }
 
-function visor(src, { titulo: tt = '', nombre = 'imagen', eliminar } = {}) {
+function visor(src, { titulo: tt = '', nombre = 'imagen', eliminar, girar } = {}) {
   const v = $('#visor'); guardia();
   v.innerHTML = `<div class="vcab"><span>${esc(tt)}</span><button class="x" id="vX">${ic('cerrar', 28)}</button></div>
     <div class="vimg" id="vImg"><img src="${src}" alt=""></div>
-    <div class="vbar"><button class="btn" id="vDes">${ic('bajar')}Guardar</button>${navigator.share ? `<button class="btn" id="vSh">${ic('compartir')}Compartir</button>` : ''}${eliminar ? `<button class="btn peligro" id="vDel">${ic('borrar')}Eliminar</button>` : ''}</div>`;
+    <div class="vbar">${girar ? `<button class="btn ico" id="vGI" title="Girar a la izquierda" aria-label="Girar a la izquierda">${ic('girarI')}</button><button class="btn ico" id="vGD" title="Girar a la derecha" aria-label="Girar a la derecha">${ic('girarD')}</button>` : ''}<button class="btn" id="vDes">${ic('bajar')}Guardar</button>${navigator.share ? `<button class="btn" id="vSh">${ic('compartir')}Compartir</button>` : ''}${eliminar ? `<button class="btn peligro" id="vDel">${ic('borrar')}Eliminar</button>` : ''}</div>`;
   v.hidden = false;
   $('#vX').onclick = cerrarVisor;
   $('#vImg').onclick = () => $('#vImg').classList.toggle('zoom');
   $('#vDes').onclick = async () => descargar(await aBlob(src), nombre);
   if ($('#vSh')) $('#vSh').onclick = async () => compartir(await aBlob(src), nombre);
   if (eliminar) $('#vDel').onclick = eliminar;
+  if (girar) {
+    const bs = [$('#vGI'), $('#vGD')];
+    const go = async dir => {
+      bs.forEach(b => b.disabled = true);
+      try { src = await girar(dir); const im = $('#vImg img'); if (im) im.src = src; toast('Foto girada' + (navigator.onLine ? '' : ' (se sube al tener señal)')); }
+      catch (e) { toast('No se pudo girar la foto: ' + e.message, 5000); }
+      bs.forEach(b => { if (b) b.disabled = false; });
+    };
+    bs[0].onclick = () => go(-1); bs[1].onclick = () => go(1);
+  }
 }
 function cerrarVisor() { const v = $('#visor'); v.hidden = true; v.innerHTML = ''; }
 
@@ -1464,11 +1505,8 @@ const medir = d => cargarImg(d).then(i => ({ d, w: i.naturalWidth, h: i.naturalH
 
 // quita la franja del sello (código, usuario y fecha) de la parte de abajo de la foto, para la versión del cliente
 async function sinSello(f) {
-  const im = await cargarImg(f.d), w = im.naturalWidth, h = im.naturalHeight;
-  const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const g = cv.getContext('2d'); g.drawImage(im, 0, 0);
-  const px = g.getImageData(0, 0, 4, h).data, azul = y => { const i = (y * 4 + 1) * 4; return Math.abs(px[i] - 14) < 22 && Math.abs(px[i + 1] - 58) < 22 && Math.abs(px[i + 2] - 95) < 22; };
-  let y = h - 1; while (y > h * 0.75 && azul(y)) y--;
-  const banda = h - 1 - y; if (banda < 30) return { d: f.d, w, h };
+  const im = await cargarImg(f.d), w = im.naturalWidth, h = im.naturalHeight, banda = bandaSello(im);
+  if (!banda) return { d: f.d, w, h };
   const c2 = document.createElement('canvas'); c2.width = w; c2.height = h - banda; c2.getContext('2d').drawImage(im, 0, 0);
   return { d: c2.toDataURL('image/jpeg', 0.85), w, h: h - banda };
 }
