@@ -8,7 +8,7 @@ import {
   query, orderBy, increment, writeBatch
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-const VERSION = '2.13.0';
+const VERSION = '2.14.0';
 const TIPOS = ['Grieta', 'Rotura', 'Desgarro', 'Ausencia', 'Otro'];
 
 // ---------- íconos Material (Apache 2.0) ----------
@@ -474,6 +474,7 @@ function vistaEventoCaldera() {
     `<h3>Anexos · líquidos penetrantes</h3>` +
     pts.map(l => itemNav(`data-id="${l.id}"`, 'grilla', esc(sobre(l.sid)?.nombre || l.nombre), `PT · ${nivelesLev(l).map(n => nivelNom(n, l)).join(', ')} · iniciado por ${esc(l.u)}`)).join('') +
     `<button class="btn" id="bPT">${ic('grilla')}Nueva inspección PT</button>` +
+    (pts.length ? `<button class="btn" id="bInfPT">${ic('informe')}Informe PT (líquidos penetrantes)</button>` : '') +
     `<button class="btn pri" id="bRes">${ic('lista')}Resumen de hallazgos</button><button class="btn" id="bInfC">${ic('informe')}Informe de la caldera completa</button><button class="btn" id="bCfg">${ic('ajustes')}Configurar sobrecalentadores</button></div></div>`;
   $('#bRes').onclick = () => resumenHallazgos(e.id, k.id);
   $('#bInfC').onclick = () => menuInforme(e.id, k.id);
@@ -482,6 +483,7 @@ function vistaEventoCaldera() {
   app.querySelectorAll('[data-id]').forEach(b => b.onclick = () => abrirLev(b.dataset.id));
   $('#bCfg').onclick = () => ir({ cid: k.cid, pid: k.pid, kid: k.id });
   $('#bPT').onclick = () => nuevaPT(e, k);
+  if ($('#bInfPT')) $('#bInfPT').onclick = () => menuInforme(e.id, k.id, 'pt');
 }
 
 // nueva inspección por líquidos penetrantes: elegir sobrecalentador y nivel (solo se registran candados con indicación)
@@ -1585,6 +1587,7 @@ async function seccionInforme(l, xs, paraCliente, avance, pre = '') {
 async function datosInforme(avance, paraCliente, alcance = 'sh', prj, kid) {
   const l0 = alcance === 'sh' ? S.lev : null;
   prj = prj || S.lev?.prj; kid = kid || S.lev?.kid;
+  if (alcance === 'pt') return datosInformePT(avance, paraCliente, prj, kid);
   const e = proy(prj), k = cal(kid), cliId = l0?.cid || k?.cid;
   const base = l0 ? nombreCompleto(l0) : [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, e?.nombre, k?.nombre].filter(Boolean).join(' · ');
   const c = {
@@ -1658,18 +1661,60 @@ async function datosInforme(avance, paraCliente, alcance = 'sh', prj, kid) {
   return c;
 }
 
+// informe PT independiente: todas las inspecciones por líquidos penetrantes de la caldera en el evento
+async function datosInformePT(avance, paraCliente, prj, kid) {
+  const e = proy(prj), k = cal(kid), shs = shDe(kid), orden = l => { const i = shs.findIndex(x => x.id === l.sid); return i < 0 ? 999 : i; };
+  const base = [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, e?.nombre, k?.nombre].filter(Boolean).join(' · ');
+  const c = {
+    titulo: 'Inspección de candados por líquidos penetrantes (PT)',
+    subtitulo: paraCliente ? base : `${base} · ${fecha(Date.now()).slice(0, 10)}`,
+    secciones: [], soloResumen: true, pie: paraCliente ? 'Informe de inspección por líquidos penetrantes' : 'TIES · Informe PT · uso interno'
+  };
+  c.logos = (await Promise.all([cli(k?.cid)?.logo, logoEmpresa()].filter(Boolean).map(medir))).filter(Boolean);
+  avance('Leyendo las inspecciones PT…');
+  const pts = ptsDe(prj, kid).sort((a, b) => orden(a) - orden(b) || Math.min(...nivelesLev(a)) - Math.min(...nivelesLev(b)));
+  const inds = new Map();
+  await Promise.all(pts.map(async v => inds.set(v.id, S.lev && v.id === S.lev.id ? [...S.inds.values()].sort(ordenar)
+    : (await getDocs(collection(db, 'levantamientos', v.id, 'indicaciones'))).docs.map(d => ({ id: d.id, ...d.data() })).sort(ordenar))));
+  const todas = [...inds.values()].flat(), nNiv = pts.reduce((a, v) => a + nivelesLev(v).length, 0);
+  const tiles = [[todas.length, 'indicaciones'], ...TIPOS_PT.map(t => [todas.filter(y => y.k === t).length, t]), [nNiv, 'niveles ensayados']];
+  if (!paraCliente) tiles.push([todas.filter(y => !completa(y)).length, 'con fotos pendientes']);
+  c.resumenCal = {
+    titulo: `Resumen PT · ${k?.nombre || ''}`, tiles,
+    leyenda: 'Verde: nivel ensayado con líquidos penetrantes · número rojo: indicaciones en el nivel',
+    leyendaW: 'Verde: nivel ensayado con líquidos penetrantes · entre paréntesis: indicaciones en el nivel',
+    shs: pts.map(v => {
+      const ys = inds.get(v.id) || [], cnt = {}, nn = n => nivelNom(n, v), corto = n => nombresNiv(v)[n - 1] || 'N' + n;
+      ys.forEach(y => cnt[y.n] = (cnt[y.n] || 0) + 1);
+      return {
+        nombre: sobre(v.sid)?.nombre || v.nombre,
+        estado: `PT en ${nivelesLev(v).map(nn).join(', ')} · ${plural(ys.length, 'indicación', 'indicaciones')}`,
+        niveles: nivelesLev(v).map(j => ({ nom: corto(j), ok: true, n: cnt[j] || 0 })),
+        filas: ys.map(y => [codigo(y), corto(y.n), pad(y.p), `T${pad(y.c)}-${pad(y.c + 1)}`, tipoTxt(y), estTxt(y), y.nota || ''])
+      };
+    })
+  };
+  for (const [i, v] of pts.entries()) {
+    const xs = inds.get(v.id) || []; if (!xs.length) continue;
+    c.secciones.push(await seccionInforme(v, xs, paraCliente, avance, `PT ${abrevSH(sobre(v.sid)?.nombre || v.nombre)} (${i + 1}/${pts.length}): `));
+  }
+  c.total = c.secciones.reduce((a, s) => a + s.fichas.length, 0);
+  return c;
+}
+
 // prj/kid: caldera en el evento; desde la grilla se puede elegir el sobrecalentador o toda la caldera
-function menuInforme(prj, kid) {
+function menuInforme(prj, kid, modo) {
   const desdeGrilla = !prj && S.lev; prj = prj || S.lev?.prj; kid = kid || S.lev?.kid;
-  const k = cal(kid), cliId = k?.cid || S.lev?.cid, pt = desdeGrilla && esPT(S.lev), conCal = !!(prj && kid) && !pt;
-  const alc = !desdeGrilla ? 'caldera' : ls.get('ties_inf_alc', 'sh') === 'caldera' && conCal ? 'caldera' : 'sh';
+  const k = cal(kid), cliId = k?.cid || S.lev?.cid, ptCal = modo === 'pt' && !desdeGrilla, pt = desdeGrilla && esPT(S.lev) || ptCal, conCal = !!(prj && kid) && !pt;
+  const alc = ptCal ? 'pt' : !desdeGrilla ? 'caldera' : ls.get('ties_inf_alc', 'sh') === 'caldera' && conCal ? 'caldera' : 'sh';
   const xs = desdeGrilla ? [...S.inds.values()] : [], faltan = xs.filter(x => !completa(x)).length;
-  hoja(`<h3>${pt ? 'Anexo · líquidos penetrantes' : 'Informe de candados'}</h3>
+  hoja(`<h3>${ptCal ? 'Informe PT · líquidos penetrantes' : pt ? 'Anexo · líquidos penetrantes' : 'Informe de candados'}</h3>
     <p class="nota">${esc(desdeGrilla ? nombreCompleto(S.lev) : [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, proy(prj)?.nombre, k?.nombre].filter(Boolean).join(' · '))}</p>
     ${desdeGrilla && conCal ? `<h4>Alcance</h4><div class="version">
       <label><input type="radio" name="iAlc" value="sh" ${alc === 'sh' ? 'checked' : ''}><span><b>Este sobrecalentador</b><small>${esc(sobre(S.lev.sid)?.nombre || '')}</small></span></label>
       <label><input type="radio" name="iAlc" value="caldera" ${alc === 'caldera' ? 'checked' : ''}><span><b>Toda la caldera</b><small>${plural(shDe(kid).length, 'sobrecalentador', 'sobrecalentadores')} en un solo informe</small></span></label></div>` : ''}
-    <p class="nota">${pt ? 'Anexo separado de la inspección visual: una hoja por nivel ensayado con su grilla y su tabla, y el detalle de cada candado con indicación, con foto general, foto de detalle y observaciones.</p><p class="nota" hidden>' : ''}Resumen de hallazgos de la caldera, croquis, una hoja por nivel con su grilla y su tabla, y el detalle de cada candado con foto general, foto de detalle y observaciones.</p>
+    ${ptCal ? `<p class="nota">Informe independiente de la inspección visual con todas las inspecciones PT de la caldera (${plural(ptsDe(prj, kid).length, 'grilla', 'grillas')}): resumen por sobrecalentador y nivel ensayado, una hoja por nivel con su grilla y su tabla, y el detalle de cada candado con indicación.</p>` : ''}
+    <p class="nota" ${ptCal ? 'hidden' : ''}>${pt ? 'Anexo separado de la inspección visual: una hoja por nivel ensayado con su grilla y su tabla, y el detalle de cada candado con indicación, con foto general, foto de detalle y observaciones.</p><p class="nota" hidden>' : ''}Resumen de hallazgos de la caldera, croquis, una hoja por nivel con su grilla y su tabla, y el detalle de cada candado con foto general, foto de detalle y observaciones.</p>
     ${faltan ? `<p class="aviso">${ic('camara', 18)} ${plural(faltan, 'indicación no tiene', 'indicaciones no tienen')} las dos fotos; en el informe aparecerá "Sin foto".</p>` : ''}
     <h4>Versión</h4><div class="version"><label><input type="radio" name="iVer" value="cliente" ${ls.get('ties_inf_ver', 'cliente') === 'cliente' ? 'checked' : ''}><span><b>Para el cliente</b><small>Sin fechas del levantamiento ni quién lo registró; fotos sin sello</small></span></label>
       <label><input type="radio" name="iVer" value="interno" ${ls.get('ties_inf_ver', 'cliente') === 'interno' ? 'checked' : ''}><span><b>Interno</b><small>Con fecha, responsables y fotos con sello</small></span></label></div>
@@ -1684,7 +1729,7 @@ function menuInforme(prj, kid) {
   $('#iLiv').onchange = e => ls.set('ties_inf_liv', e.target.checked);
   $('#iHor').onchange = e => ls.set('ties_inf_hor', e.target.checked);
   $('#modal').querySelectorAll('[name="iAlc"]').forEach(r => r.onchange = () => ls.set('ties_inf_alc', r.value));
-  const alcance = () => !desdeGrilla ? 'caldera' : $('#modal [name="iAlc"]:checked')?.value || 'sh';
+  const alcance = () => ptCal ? 'pt' : !desdeGrilla ? 'caldera' : $('#modal [name="iAlc"]:checked')?.value || 'sh';
   $('#iPdf').onclick = () => generarInforme('pdf', alcance(), prj, kid);
   $('#iDoc').onclick = () => generarInforme('docx', alcance(), prj, kid);
 }
@@ -1701,9 +1746,10 @@ async function generarInforme(tipo, alcance, prj, kid) {
     av(tipo === 'pdf' ? 'Armando el PDF…' : 'Armando el Word…');
     const m = await import('./informe.js');
     const blob = tipo === 'pdf' ? await m.informePDF(c) : await m.informeWord(c);
-    const k = cal(kid), base = alcance === 'caldera' ? [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, proy(prj)?.nombre, k?.nombre].filter(Boolean).join(' · ') + ' completa' : nombreCompleto(S.lev);
-    const nombre = `${esPT(S.lev) && alcance === 'sh' ? 'Anexo PT candados' : 'Informe candados'} ${limpio(base)}${cliente ? '' : ' INTERNO ' + hoy()}.${tipo}`;
-    hoja(`<h3>Informe listo</h3><p>${alcance === 'caldera' ? 'Caldera completa' : 'Sobrecalentador'} · ${cliente ? 'para el cliente' : 'interno'} · ${tipo === 'pdf' ? 'PDF' : 'Word'}${liviano ? ' liviano' : ''} · ${c.total} indicación(es) · ${(blob.size / 1048576).toFixed(1)} MB</p>
+    const k = cal(kid), cal0 = [cli(k?.cid)?.nombre, pla(k?.pid)?.nombre, proy(prj)?.nombre, k?.nombre].filter(Boolean).join(' · ');
+    const base = alcance === 'caldera' ? cal0 + ' completa' : alcance === 'pt' ? cal0 : nombreCompleto(S.lev);
+    const nombre = `${alcance === 'pt' ? 'Informe PT candados' : esPT(S.lev) && alcance === 'sh' ? 'Anexo PT candados' : 'Informe candados'} ${limpio(base)}${cliente ? '' : ' INTERNO ' + hoy()}.${tipo}`;
+    hoja(`<h3>Informe listo</h3><p>${alcance === 'pt' ? 'Líquidos penetrantes · caldera' : alcance === 'caldera' ? 'Caldera completa' : 'Sobrecalentador'} · ${cliente ? 'para el cliente' : 'interno'} · ${tipo === 'pdf' ? 'PDF' : 'Word'}${liviano ? ' liviano' : ''} · ${c.total} indicación(es) · ${(blob.size / 1048576).toFixed(1)} MB</p>
       <button class="btn pri" id="zSh">${ic('compartir')}Compartir</button><button class="btn" id="zDes">${ic('bajar')}Guardar en Descargas</button>
       <div class="acciones"><button class="btn" data-x>Cerrar</button></div>`);
     $('#zSh').onclick = () => compartir(blob, nombre);

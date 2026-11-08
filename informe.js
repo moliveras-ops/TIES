@@ -92,7 +92,7 @@ export async function informePDF(c) {
       texto('', 7.5, false, GRIS); pdf.text(pdf.splitTextToSize(t, tw - 2), x + tw / 2, y + 13, { align: 'center' });
     });
     y += 24;
-    texto('', 8, false, GRIS); pdf.text('Verde: nivel inspeccionado · número rojo: hallazgos en el nivel', M, y); y += 6;
+    texto('', 8, false, GRIS); pdf.text(R.leyenda || 'Verde: nivel inspeccionado · número rojo: hallazgos en el nivel', M, y); y += 6;
     R.shs.forEach(sh => {
       const alto = 9 + 11 + (sh.filas.length ? 10 : 0);
       if (y + alto > FIN) nueva(R.titulo + ' (cont.)');
@@ -211,7 +211,7 @@ ${filas.map(f => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${f.map((v, i) => celda(v
     b += c.soloResumen ? par(run(R.titulo, { b: true, sz: 24, col: AZUL }), { despues: 100 }) : salto + cab(R.titulo);
     b += `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:insideV w:val="single" w:sz="4" w:color="FFFFFF"/></w:tblBorders></w:tblPr><w:tblGrid>${R.tiles.map(() => `<w:gridCol w:w="${twip(tw)}"/>`).join('')}</w:tblGrid><w:tr>${R.tiles.map(([v, t]) =>
       `<w:tc><w:tcPr><w:tcW w:w="${twip(tw)}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${hex(SUAVE)}"/></w:tcPr>${par(run(String(v), { b: true, sz: 30, col: AZUL }), { al: 'center', antes: 80, despues: 0 })}${par(run(t, { sz: 15, col: GRIS }), { al: 'center', despues: 80 })}</w:tc>`).join('')}</w:tr></w:tbl>`;
-    b += par(run('Verde: nivel inspeccionado · entre paréntesis: hallazgos en el nivel', { sz: 16, col: GRIS }), { antes: 80 });
+    b += par(run(R.leyendaW || 'Verde: nivel inspeccionado · entre paréntesis: hallazgos en el nivel', { sz: 16, col: GRIS }), { antes: 80 });
     R.shs.forEach(sh => {
       b += par(run(sh.nombre, { b: true, sz: 21, col: AZUL }) + run('    ' + sh.estado, { sz: 16, col: GRIS }), { sh: SUAVE, antes: 160, despues: 60 });
       const cw = Math.min(24, 182 / sh.niveles.length);
